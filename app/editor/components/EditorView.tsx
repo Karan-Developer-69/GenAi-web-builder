@@ -1,16 +1,45 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { useCallback, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from '../../../lib/store/store';
+import {
+    setStatus,
+    setPreviewUrl,
+    setBooted,
+    setFiles,
+    setActiveFile,
+    setEditorContent,
+    setIsBuilding,
+    setBuildingProgress,
+    setBuildingStatus,
+    setErrorData,
+    setIsReplicating,
+    setViewMode,
+    setRunStatus,
+} from '../../../lib/store/slices/editorSlice';
+import {
+    setMessages,
+    addMessage,
+    setInput,
+    setIsTyping,
+    addToHistory,
+} from '../../../lib/store/slices/chatSlice';
+import {
+    appendLine,
+    updateLastLine,
+    clearLines,
+} from '../../../lib/store/slices/terminalSlice';
 import {
     bootWebContainer,
     startDevServer,
-    writeContainerFile,
-    readContainerFile,
     runInstall,
+    readContainerFile,
+    writeContainerFile
 } from '../../../webcontainer/container';
-import { File, Folder, Tree } from "@/components/ui/file-tree";
-import { useTerminal } from '../../../hooks/useTerminal';
+import { File, Folder } from '../../../components/ui/file-tree';
+import { getLanguage } from '../../../lib/utils';
 
 import TopBar from './TopBar';
 import Sidebar from './Sidebar';
@@ -23,56 +52,79 @@ export interface FileEntry {
     isDirectory?: boolean;
 }
 
-const DEFAULT_FILES: FileEntry[] = [
-    { name: 'App.jsx', path: 'App.jsx', language: 'javascript' },
-    { name: 'index.html', path: 'index.html', language: 'html' },
-    { name: 'package.json', path: 'package.json', language: 'json' },
-    { name: 'server.js', path: 'server.js', language: 'javascript' },
-];
-
-type Status = 'idle' | 'booting' | 'running' | 'error';
 
 export default function EditorView() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [status, setStatus] = useState<Status>('idle');
-    const [previewUrl, setPreviewUrl] = useState('');
-    const { lines: terminalLines, appendLine, updateLastLine, clear: clearTerminal } = useTerminal();
-    const [booted, setBooted] = useState(false);
+    const popupRef = useRef<Window | null>(null);
+    const dispatch = useDispatch();
 
-    // Dynamic Files State
-    const [files, setFiles] = useState<FileEntry[]>(DEFAULT_FILES);
-    const [activeFile, setActiveFile] = useState<FileEntry>(DEFAULT_FILES[0]);
-    const [editorContent, setEditorContent] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
+    // Selectors
+    const status = useSelector((state: RootState) => state.editor.status);
+    const previewUrl = useSelector((state: RootState) => state.editor.previewUrl);
+    const booted = useSelector((state: RootState) => state.editor.booted);
+    const files = useSelector((state: RootState) => state.editor.files);
+    const activeFile = useSelector((state: RootState) => state.editor.activeFile);
+    const editorContent = useSelector((state: RootState) => state.editor.editorContent);
+    const isBuilding = useSelector((state: RootState) => state.editor.isBuilding);
+    const buildingProgress = useSelector((state: RootState) => state.editor.buildingProgress);
+    const buildingStatus = useSelector((state: RootState) => state.editor.buildingStatus);
+    const deviceMode = useSelector((state: RootState) => state.editor.deviceMode);
+    const errorData = useSelector((state: RootState) => state.editor.errorData);
+    const isReplicating = useSelector((state: RootState) => state.editor.isReplicating);
+    const viewMode = useSelector((state: RootState) => state.editor.viewMode);
+    const runStatus = useSelector((state: RootState) => state.editor.runStatus);
 
-    // UI States
-    const [isBuilding, setIsBuilding] = useState(false);
-    const [buildingProgress, setBuildingProgress] = useState(0);
-    const [buildingStatus, setBuildingStatus] = useState('Analyzing prompt...');
-    const [deviceMode, setDeviceMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-    const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant', content: string }[]>([]);
-    const [chatInput, setChatInput] = useState('');
-    const [isTyping, setIsTyping] = useState(false);
-    const [currentTab, setCurrentTab] = useState<'chat' | 'history' | 'layers'>('chat');
-    const [history, setHistory] = useState<string[]>([]);
-    const [layers, setLayers] = useState<{ path: string; type: 'file' | 'dir' }[]>([]);
-    const [errorData, setErrorData] = useState<{ message: string; type: 'boot' | 'runtime' } | null>(null);
-    const [isReplicating, setIsReplicating] = useState(false);
-    const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
-    const [runStatus, setRunStatus] = useState<'idle' | 'installing' | 'running' | 'error'>('idle');
+    const chatMessages = useSelector((state: RootState) => state.chat.messages);
+    const chatInput = useSelector((state: RootState) => state.chat.input);
+    const isTyping = useSelector((state: RootState) => state.chat.isTyping);
 
-    // Helper to detect language from file extension
-    const getLanguage = (path: string): string => {
-        if (path.endsWith('.css')) return 'css';
-        if (path.endsWith('.json')) return 'json';
-        if (path.endsWith('.html')) return 'html';
-        if (path.endsWith('.ts') || path.endsWith('.tsx')) return 'typescript';
-        if (path.endsWith('.js') || path.endsWith('.jsx')) return 'javascript';
-        if (path.endsWith('.md')) return 'markdown';
-        return 'plaintext';
-    };
+    const terminalLines = useSelector((state: RootState) => state.terminal.lines);
+
+    // Action dispatchers as functions
+    const setActiveFileFunc = (file: FileEntry) => dispatch(setActiveFile(file));
+    const setChatInputFunc = (input: string) => dispatch(setInput(input));
+    const setEditorContentFunc = (content: string) => dispatch(setEditorContent(content));
+    const setViewModeFunc = (mode: 'code' | 'preview') => dispatch(setViewMode(mode));
+    const setErrorDataFunc = (data: any) => dispatch(setErrorData(data));
+
+    const processGeneration = useCallback(async (prompt: string, currentFiles: FileEntry[]) => {
+        try {
+            const res = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt }),
+            });
+            if (!res.ok) throw new Error('Generation failed');
+            const data = await res.json();
+            if (data.files) {
+                let updatedFiles = [...currentFiles];
+                for (const file of data.files) {
+                    await writeContainerFile(file.path, file.content);
+                    if (!updatedFiles.find(f => f.path === file.path)) {
+                        const newFile = {
+                            name: file.path.split('/').pop() || file.path,
+                            path: file.path,
+                            language: getLanguage(file.path),
+                            isDirectory: false,
+                        };
+                        updatedFiles.push(newFile);
+                    }
+                }
+                dispatch(setFiles(updatedFiles));
+
+                // If no active file, set the first generated one
+                if (!activeFile && updatedFiles.length > 0) {
+                    const firstFile = updatedFiles[0];
+                    dispatch(setActiveFile(firstFile));
+                    const content = await readContainerFile(firstFile.path);
+                    dispatch(setEditorContent(content));
+                }
+            }
+        } catch (err) {
+            console.error('Generation error:', err);
+        }
+    }, [dispatch, activeFile, files]);
 
     // Helper to build structure for Tree component
     const buildTreeData = (filesList: FileEntry[]) => {
@@ -155,8 +207,9 @@ export default function EditorView() {
                     onClick={async () => {
                         const fileMatch = files.find(f => f.path === el.id);
                         if (fileMatch) {
-                            setActiveFile(fileMatch);
-                            setEditorContent(await readContainerFile(fileMatch.path));
+                            dispatch(setActiveFile(fileMatch));
+                            const content = await readContainerFile(fileMatch.path);
+                            dispatch(setEditorContent(content));
                         }
                     }}
                 >
@@ -166,189 +219,127 @@ export default function EditorView() {
         });
     };
 
-    // FIX: Added Content-Type header to initial generation fetch
-    const processGeneration = async (prompt: string) => {
-        setIsBuilding(true);
-        setBuildingProgress(0);
-
-        const statuses = [
-            "Synthesizing Synergy...",
-            "Architecting Framework...",
-            "Generating Components...",
-            "Finalizing Structure..."
-        ];
-        let statusIdx = 0;
-        const progressInterval = setInterval(() => {
-            setBuildingProgress(prev => Math.min(prev + 1.2, 100));
-            if (Math.random() > 0.7) {
-                statusIdx = Math.min(statusIdx + 1, statuses.length - 1);
-                setBuildingStatus(statuses[statusIdx]);
-            }
-        }, 30);
-
-        try {
-            // FIX: Was missing Content-Type header — caused 400 on some runtimes
-            const res = await fetch('/api/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
-            });
-
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({ error: res.statusText }));
-                throw new Error(errData.error || `API returned ${res.status}`);
-            }
-
-            const data = await res.json();
-
-            if (data.files) {
-                const newFiles: FileEntry[] = data.files.map((f: any) => ({
-                    name: f.path.split('/').pop() || f.path,
-                    path: f.path,
-                    language: getLanguage(f.path),
-                    isDirectory: false
-                }));
-
-                const directoryMap = new Set<string>();
-                newFiles.forEach(f => {
-                    const parts = f.path.split('/');
-                    if (parts.length > 1) {
-                        for (let i = 1; i < parts.length; i++) {
-                            directoryMap.add(parts.slice(0, i).join('/'));
-                        }
-                    }
-                });
-
-                const finalFiles = [...newFiles];
-                directoryMap.forEach(dirPath => {
-                    if (!finalFiles.find(f => f.path === dirPath)) {
-                        finalFiles.push({
-                            name: dirPath.split('/').pop() || dirPath,
-                            path: dirPath,
-                            language: 'directory',
-                            isDirectory: true
-                        });
-                    }
-                });
-
-                setFiles(finalFiles);
-                setLayers(finalFiles.map(f => ({ path: f.path, type: f.isDirectory ? 'dir' : 'file' })));
-
-                for (const file of data.files) {
-                    await writeContainerFile(file.path, file.content);
-                }
-
-                const entryFile =
-                    newFiles.find((f: FileEntry) => f.path === 'App.jsx') ||
-                    newFiles.find((f: FileEntry) => f.path === 'index.html') ||
-                    newFiles[0];
-
-                if (entryFile) {
-                    setActiveFile(entryFile);
-                    setEditorContent(
-                        data.files.find((f: any) => f.path === entryFile.path)?.content || ''
-                    );
-                }
-            }
-        } catch (err: any) {
-            setErrorData({
-                message: err?.message || "Strategic Build Failure: Synergy Disrupted.",
-                type: 'boot'
-            });
-        } finally {
-            clearInterval(progressInterval);
-            setBuildingProgress(100);
-            setTimeout(() => setIsBuilding(false), 800);
-        }
-    };
+    // In processGeneration, removed unused variables and cleaned up
 
     useEffect(() => {
         let cancelled = false;
         async function boot() {
             try {
-                setStatus('booting');
-                setRunStatus('idle');
-                appendLine('Booting WebContainer…', 'process');
-                const wc = await bootWebContainer();
-                if (cancelled) return;
-                setBooted(true);
-                updateLastLine('✓ WebContainer ready', 'success');
-
-                const prompt = searchParams.get('prompt');
-                if (prompt) {
-                    setChatMessages([{ role: 'user', content: prompt }]);
-                    await processGeneration(prompt);
-                    setTimeout(() => {
-                        setChatMessages(prev => [...prev, {
-                            role: 'assistant',
-                            content: "✦ I've analyzed your prompt and started building.\n\nThe preview is live on the right. Ask me to change anything — colors, layout, copy, or sections. I'm listening."
-                        }]);
-                    }, 3500);
+                dispatch(setStatus('booting'));
+                dispatch(setRunStatus('idle'));
+                if (typeof window !== 'undefined' && !window.crossOriginIsolated) {
+                    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                    const msg = `Security isolation (COOP/COEP) is not active. ${!isLocalhost ? 'Please use http://localhost:3000 instead of an IP address. ' : ''}Check your next.config.ts and restart the dev server.`;
+                    dispatch(appendLine({ content: `✗ ${msg}`, type: 'error' }));
+                    throw new Error(msg);
                 }
 
-                if (!iframeRef.current) return;
+                const wc = await bootWebContainer();
+                if (!wc) throw new Error('bootWebContainer failed');
 
+                dispatch(setBooted(true));
+                dispatch(updateLastLine({ content: '✓ WebContainer ready', type: 'success' }));
+
+                // ✅ FIX: prompt processing pehle, parallel mein chal sakta hai
+                const prompt = searchParams.get('prompt');
+                if (prompt) {
+                    dispatch(setMessages([{ role: 'user', content: prompt }]));
+                    // processGeneration ko await mat karo — server boot parallel mein chale
+                    processGeneration(prompt, files).then(() => {
+                        setTimeout(() => {
+                            dispatch(addMessage({
+                                role: 'assistant',
+                                content: "✦ I've analyzed your prompt and started building.\n\nThe preview is live on the right. Ask me to change anything — colors, layout, copy, or sections. I'm listening."
+                            }));
+                        }, 3500);
+                    });
+                }
+
+                // Removed iframe check as we are using popups
+
+                // Install dependencies
                 const filesList = await wc.fs.readdir('.');
                 const hasPackageJson = filesList.includes('package.json');
+
                 if (hasPackageJson) {
-                    setRunStatus('installing');
-                    appendLine('Installing dependencies…', 'process');
+                    dispatch(setRunStatus('installing'));
+                    dispatch(appendLine({ content: 'Installing dependencies…', type: 'process' }));
 
                     const spinnerChars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
                     let spinIdx = 0;
                     const spinInterval = setInterval(() => {
-                        updateLastLine(`Installing dependencies ${spinnerChars[spinIdx++ % spinnerChars.length]}`, 'process');
+                        dispatch(updateLastLine({ content: `Installing dependencies ${spinnerChars[spinIdx++ % spinnerChars.length]}`, type: 'process' }));
                     }, 100);
 
                     const exitCode = await runInstall((data: string) => {
                         if (!cancelled && data.toLowerCase().includes('err')) {
-                            appendLine(data, 'error');
+                            dispatch(appendLine({ content: data, type: 'error' }));
                         }
                     });
 
                     clearInterval(spinInterval);
                     if (exitCode !== 0) throw new Error('npm install failed');
-                    updateLastLine('✓ Dependencies installed', 'success');
+                    dispatch(updateLastLine({ content: '✓ Dependencies installed', type: 'success' }));
                 }
 
-                setRunStatus('running');
+                // ✅ FIX: startDevServer HAMESHA chalega — install ke baad bhi
+                dispatch(setRunStatus('running'));
+                dispatch(appendLine({ content: 'Starting dev server…', type: 'process' }));
+
                 await startDevServer(
-                    iframeRef.current,
                     (data) => {
                         if (!cancelled) {
-                            if (data.includes('$')) appendLine(data, 'command');
-                            else if (data.includes('✓')) appendLine(data, 'success');
-                            else appendLine(data, 'log');
+                            if (data.includes('$')) dispatch(appendLine({ content: data, type: 'process' }));
+                            else if (data.includes('✓')) dispatch(appendLine({ content: data, type: 'success' }));
+                            else dispatch(appendLine({ content: data, type: 'log' }));
                         }
                     },
                     (url) => {
                         if (!cancelled) {
-                            console.log("UREL => ",url)
-                            setPreviewUrl(url);
-                            setStatus('running');
+                            console.log('[EditorView] Preview URL received:', url);
+                            dispatch(setPreviewUrl(url));
+                            dispatch(setStatus('running'));
+
+                            // Popup opening sequence
+                            if (!popupRef.current || popupRef.current.closed) {
+                                // First open the connection page to establish the window
+                                popupRef.current = window.open(
+                                    '/webcontainer/connect/init',
+                                    'wc-preview',
+                                    'width=1200,height=800'
+                                );
+                            }
+
+                            if (popupRef.current) {
+                                // Then navigate to the actual WebContainer URL
+                                popupRef.current.location.href = url;
+                            } else {
+                                dispatch(appendLine({ content: '⚠ Preview popup blocked. Please allow popups.', type: 'error' }));
+                            }
                         }
                     }
                 );
             } catch (err) {
                 if (!cancelled) {
-                    setStatus('error');
-                    setRunStatus('error');
-                    appendLine(`✗ ${err}`, 'error');
+                    dispatch(setStatus('error'));
+                    dispatch(setRunStatus('error'));
+                    dispatch(appendLine({ content: `✗ ${err}`, type: 'error' }));
+                    console.error('[EditorView] Boot error:', err);
                 }
             }
         }
         boot();
         return () => { cancelled = true; };
-    }, []);
+    }, [dispatch, processGeneration, searchParams, files]);
 
     const handleSendMessage = async () => {
         if (!chatInput.trim() || isTyping) return;
 
         const userMsg = chatInput.trim();
-        setChatInput('');
-        setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
-        setHistory(prev => [userMsg, ...prev].slice(0, 10));
-        setIsTyping(true);
+        dispatch(setInput(''));
+        dispatch(addMessage({ role: 'user', content: userMsg }));
+        dispatch(addToHistory(userMsg));
+        dispatch(setIsTyping(true));
 
         try {
             // FIX: API route now receives `messages` array — route.ts updated to handle both
@@ -372,126 +363,126 @@ export default function EditorView() {
             if (data.files) {
                 // Build assistant message summarizing what changed
                 const changedPaths = data.files.map((f: any) => f.path).join(', ');
-                setChatMessages(prev => [
-                    ...prev,
-                    { role: 'assistant', content: `✦ Updated: \`${changedPaths}\`` }
-                ]);
+                dispatch(addMessage({ role: 'assistant', content: `✦ Updated: \`${changedPaths}\`` }));
 
                 let hasPackageJsonUpdate = false;
+                let updatedFiles = [...files];
 
                 for (const file of data.files) {
                     if (file.path === 'package.json') hasPackageJsonUpdate = true;
                     await writeContainerFile(file.path, file.content);
 
-                    setFiles(prev => {
-                        if (prev.find(f => f.path === file.path)) return prev;
-                        return [...prev, {
+                    const existingIndex = updatedFiles.findIndex(f => f.path === file.path);
+                    if (existingIndex === -1) {
+                        updatedFiles.push({
                             name: file.path.split('/').pop() || file.path,
                             path: file.path,
                             language: getLanguage(file.path),
                             isDirectory: false,
-                        }];
-                    });
+                        });
+                    }
 
-                    if (activeFile.path === file.path) {
-                        setEditorContent(file.content);
+                    if (activeFile && file.path === activeFile.path) {
+                        dispatch(setEditorContent(file.content));
                     }
                 }
 
+                dispatch(setFiles(updatedFiles));
+
                 if (hasPackageJsonUpdate) {
-                    setRunStatus('installing');
-                    appendLine('package.json updated — syncing dependencies...', 'process');
-                    const exitCode = await runInstall((logLine) => appendLine(logLine, 'log'));
+                    dispatch(setRunStatus('installing'));
+                    dispatch(appendLine({ content: 'package.json updated — syncing dependencies...', type: 'process' }));
+                    const exitCode = await runInstall((logLine) => dispatch(appendLine({ content: logLine, type: 'log' })));
                     if (exitCode === 0) {
-                        updateLastLine('✓ Dependencies updated', 'success');
-                        setRunStatus('running');
+                        dispatch(updateLastLine({ content: '✓ Dependencies updated', type: 'success' }));
+                        dispatch(setRunStatus('running'));
                     } else {
-                        setRunStatus('error');
-                        appendLine('✗ Dependency sync failed', 'error');
+                        dispatch(setRunStatus('error'));
+                        dispatch(appendLine({ content: '✗ Dependency sync failed', type: 'error' }));
                     }
                 }
             } else if (data.error) {
                 throw new Error(data.error);
             }
         } catch (err: any) {
-            setErrorData({
+            dispatch(setErrorData({
                 message: err?.message || "Communication Disruption. Verify uplink.",
                 type: 'runtime'
-            });
+            }));
         } finally {
-            setIsTyping(false);
+            dispatch(setIsTyping(false));
         }
     };
 
     const handleAutoFix = async () => {
         if (!errorData) return;
-        setIsReplicating(true);
-        setChatInput(`I encountered this error: "${errorData.message}". Please analyze and fix it.`);
-        setErrorData(null);
+        dispatch(setIsReplicating(true));
+        dispatch(setInput(`I encountered this error: "${errorData.message}". Please analyze and fix it.`));
+        dispatch(setErrorData(null));
         // Small delay to let setChatInput settle before sending
         setTimeout(async () => {
             await handleSendMessage();
-            setIsReplicating(false);
+            dispatch(setIsReplicating(false));
         }, 100);
     };
 
     // WebContainer API handlers for Preview
     const handleRestartServer = useCallback(async () => {
         if (status === 'running') {
-            setStatus('booting');
-            appendLine('Restarting dev server...', 'process');
+            dispatch(setStatus('booting'));
+            dispatch(appendLine({ content: 'Restarting dev server...', type: 'process' }));
             try {
                 // For now, just refresh the iframe - in a full implementation we'd restart the process
-                if (iframeRef.current) {
-                    iframeRef.current.src = iframeRef.current.src;
+                if (popupRef.current && !popupRef.current.closed) {
+                    popupRef.current.location.reload();
                 }
-                setStatus('running');
-                appendLine('✓ Server restarted', 'success');
+                dispatch(setStatus('running'));
+                dispatch(appendLine({ content: '✓ Server restarted', type: 'success' }));
             } catch (err) {
-                setStatus('error');
-                appendLine(`✗ Failed to restart server: ${err}`, 'error');
+                dispatch(setStatus('error'));
+                dispatch(appendLine({ content: `✗ Failed to restart server: ${err}`, type: 'error' }));
             }
         }
-    }, [status, appendLine]);
+    }, [status, dispatch]);
 
     const handleClearContainer = useCallback(async () => {
-        setStatus('booting');
-        appendLine('Clearing container...', 'process');
+        dispatch(setStatus('booting'));
+        dispatch(appendLine({ content: 'Clearing container...', type: 'process' }));
         try {
             // Reboot the container
             await bootWebContainer();
-            setStatus('idle');
-            setPreviewUrl('');
-            appendLine('✓ Container cleared', 'success');
+            dispatch(setStatus('idle'));
+            dispatch(setPreviewUrl(''));
+            dispatch(appendLine({ content: '✓ Container cleared', type: 'success' }));
         } catch (err) {
-            setStatus('error');
-            appendLine(`✗ Failed to clear container: ${err}`, 'error');
+            dispatch(setStatus('error'));
+            dispatch(appendLine({ content: `✗ Failed to clear container: ${err}`, type: 'error' }));
         }
-    }, [appendLine]);
+    }, [dispatch]);
 
     const handleInstallDeps = useCallback(async () => {
-        setRunStatus('installing');
-        appendLine('Installing dependencies...', 'process');
+        dispatch(setRunStatus('installing'));
+        dispatch(appendLine({ content: 'Installing dependencies...', type: 'process' }));
         try {
-            const exitCode = await runInstall((logLine) => appendLine(logLine, 'log'));
+            const exitCode = await runInstall((logLine) => dispatch(appendLine({ content: logLine, type: 'log' })));
             if (exitCode === 0) {
-                setRunStatus('idle');
-                appendLine('✓ Dependencies installed', 'success');
+                dispatch(setRunStatus('idle'));
+                dispatch(appendLine({ content: '✓ Dependencies installed', type: 'success' }));
             } else {
-                setRunStatus('error');
-                appendLine('✗ Failed to install dependencies', 'error');
+                dispatch(setRunStatus('error'));
+                dispatch(appendLine({ content: '✗ Failed to install dependencies', type: 'error' }));
             }
         } catch (err) {
-            setRunStatus('error');
-            appendLine(`✗ Install error: ${err}`, 'error');
+            dispatch(setRunStatus('error'));
+            dispatch(appendLine({ content: `✗ Install error: ${err}`, type: 'error' }));
         }
-    }, [appendLine]);
+    }, [dispatch]);
 
     return (
         <div className="h-screen flex flex-col bg-zinc-950 font-sans overflow-hidden text-zinc-100">
             <TopBar
-                viewMode={viewMode}
-                setViewMode={setViewMode}
+                viewMode={viewMode as 'code' | 'preview'}
+                setViewMode={setViewModeFunc}
                 previewUrl={previewUrl}
             />
 
@@ -499,23 +490,23 @@ export default function EditorView() {
                 <Sidebar
                     chatMessages={chatMessages}
                     isTyping={isTyping}
-                    setChatInput={setChatInput}
+                    chatInput={chatInput}
+                    setChatInput={setChatInputFunc}
                     handleSendMessage={handleSendMessage}
                 />
 
                 <Workspace
-                    viewMode={viewMode}
+                    viewMode={viewMode as 'code' | 'preview'}
                     files={files}
                     activeFile={activeFile}
-                    setActiveFile={setActiveFile}
+                    setActiveFile={setActiveFileFunc}
                     readContainerFile={readContainerFile}
-                    setEditorContent={setEditorContent}
+                    setEditorContent={setEditorContentFunc}
                     editorContent={editorContent}
                     terminalLines={terminalLines}
                     runStatus={runStatus}
-                    clearTerminal={clearTerminal}
-                    deviceMode={deviceMode}
-                    iframeRef={iframeRef}
+                    clearTerminal={() => dispatch(clearLines())}
+                    deviceMode={deviceMode as 'desktop' | 'tablet' | 'mobile'}
                     previewUrl={previewUrl}
                     status={status}
                     isBuilding={isBuilding}
@@ -546,7 +537,7 @@ export default function EditorView() {
                                 </button>
                                 <button
                                     className="bg-transparent border border-zinc-800 text-zinc-500 py-3 rounded-xl font-bold text-xs cursor-pointer transition-all hover:text-zinc-300 hover:border-zinc-700 active:scale-95"
-                                    onClick={() => setErrorData(null)}
+                                    onClick={() => setErrorDataFunc(null)}
                                 >
                                     Manual Intervention
                                 </button>

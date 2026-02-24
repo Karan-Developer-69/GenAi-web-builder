@@ -32,7 +32,7 @@ export default function Terminal({ lines, status, onClear }: TerminalProps) {
     const s = STATUS_CONFIG[status];
 
     return (
-        <div className="terminal-container">
+        <div className="terminal-container h-50">
             <div className="terminal-header">
                 <div className="header-left">
                     <span className="terminal-title">TERMINAL</span>
@@ -48,7 +48,6 @@ export default function Terminal({ lines, status, onClear }: TerminalProps) {
                         className={`log-line type-${line.type}`}
                         style={{ color: TYPE_COLORS[line.type] }}
                     >
-                        {line.type === 'command' && <span className="shell-prompt">$ </span>}
                         {line.content}
                     </div>
                 ))}

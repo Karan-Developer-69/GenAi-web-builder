@@ -3,7 +3,11 @@ import { WebContainer, type FileSystemTree } from '@webcontainer/api';
 let webcontainerInstance: WebContainer | null = null;
 let bootPromise: Promise<WebContainer> | null = null;
 
-/* ─── Zero-dependency static file server (no servor!) ─── */
+// ✅ FIX 1: server-ready URL globally cache karo
+// Agar event pehle fire ho aur EditorView baad mein pooche — dono cases handle honge
+let cachedServerUrl: string | null = null;
+let serverReadyCallbacks: Array<(url: string) => void> = [];
+
 const SERVER_JS = `
 const http = require('http');
 const fs   = require('fs');
@@ -27,7 +31,6 @@ const server = http.createServer((req, res) => {
   let urlPath = req.url === '/' ? '/index.html' : req.url;
   let filePath = path.join(ROOT, urlPath);
 
-  // Simple existence check
   if (!fs.existsSync(filePath)) {
     filePath = path.join(ROOT, 'index.html');
   }
@@ -49,7 +52,6 @@ server.listen(PORT, () => {
 });
 `.trim();
 
-/** Starter project files mounted into the container */
 const starterFiles: FileSystemTree = {
     'index.html': {
         file: {
@@ -84,8 +86,7 @@ const starterFiles: FileSystemTree = {
     },
     'App.jsx': {
         file: {
-            contents: `// Your synergy starts here
-console.log('Lysis Synergy Booted');`,
+            contents: `// Your synergy starts here\nconsole.log('Lysis Synergy Booted');`,
         },
     },
     'server.js': {
@@ -98,12 +99,8 @@ console.log('Lysis Synergy Booted');`,
                     name: 'lysis-synergy-app',
                     version: '3.0.0',
                     private: true,
-                    scripts: {
-                        dev: 'node server.js',
-                    },
-                    dependencies: {
-                        'express': '^4.18.2'
-                    }
+                    scripts: { dev: 'node server.js' },
+                    dependencies: { express: '^4.18.2' },
                 },
                 null,
                 2
@@ -116,36 +113,25 @@ export function getStarterFiles() {
     return starterFiles;
 }
 
-/** Boot the WebContainer (only once) and mount starter files */
-export async function bootWebContainer(): Promise<WebContainer> {
-    const wc = await getContainerInstance();
-    await wc.mount(starterFiles);
-    return wc;
-}
-
-/** Purification utility for terminal logs */
-export function cleanTerminalLog(data: string): string {
-    if (!data) return '';
-
-    return (
-        data
-            // Strictly remove all ANSI escape sequences
-            .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
-            // Remove carriage returns and other control chars
-            .replace(/[\r\x08\x07\x00-\x09\x0B-\x1F\x7F]/g, '')
-            // Collapse excessive newlines
-            .replace(/\n{3,}/g, '\n\n')
-    );
-}
-
 export async function getContainerInstance(): Promise<WebContainer> {
     if (webcontainerInstance) return webcontainerInstance;
-
     if (bootPromise) return bootPromise;
 
     bootPromise = (async () => {
         try {
+            console.log('[WC] Booting WebContainer...');
             webcontainerInstance = await WebContainer.boot();
+            console.log('[WC] Boot complete. Registering server-ready listener NOW.');
+
+            // ✅ FIX 2: server-ready listener BOOT ke turant baad register karo
+            // Yeh SPAWN se pehle hoga — guaranteed. Event kabhi miss nahi hoga.
+            webcontainerInstance.on('server-ready', (_port, url) => {
+                console.log('[WC] ✅ server-ready FIRED! port:', _port, 'url:', url);
+                cachedServerUrl = url;
+                serverReadyCallbacks.forEach(cb => cb(url));
+                serverReadyCallbacks = [];
+            });
+
             return webcontainerInstance;
         } catch (err) {
             bootPromise = null;
@@ -156,12 +142,33 @@ export async function getContainerInstance(): Promise<WebContainer> {
     return bootPromise;
 }
 
+export async function bootWebContainer(): Promise<WebContainer> {
+    const wc = await getContainerInstance();
+    await wc.mount(starterFiles);
+    console.log('[WC] Starter files mounted.');
+    return wc;
+}
+
+export function cleanTerminalLog(data: string): string {
+    if (!data) return '';
+    return data
+        .replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/[\r\x08\x07\x00-\x09\x0B-\x1F\x7F]/g, '')
+        .replace(/\n{3,}/g, '\n\n');
+}
+
 export async function startDevServer(
-    iframeEl: HTMLIFrameElement,
     onTerminalLog?: (data: string) => void,
     onUrlReady?: (url: string) => void
 ) {
     const wc = await getContainerInstance();
+
+    if (cachedServerUrl) {
+        console.log('[WC] Server already cached:', cachedServerUrl);
+        onUrlReady?.(cachedServerUrl);
+        onTerminalLog?.(`✓ Server already running at ${cachedServerUrl}\n`);
+        return;
+    }
 
     const pkgContent = await wc.fs.readFile('package.json', 'utf-8').catch(() => '{}');
     const pkg = JSON.parse(pkgContent);
@@ -169,28 +176,47 @@ export async function startDevServer(
     const args = pkg.scripts?.dev ? ['run', 'dev'] : ['start'];
 
     onTerminalLog?.(`$ ${command} ${args.join(' ')}\n`);
+    console.log('[WC] Spawning:', command, args.join(' '));
+
+    const urlWhenReady = new Promise<string>((resolve) => {
+        if (cachedServerUrl) { resolve(cachedServerUrl); return; }
+        serverReadyCallbacks.push((url) => {
+            console.log('[WC] Callback received URL:', url);
+            resolve(url);
+        });
+    });
+
     const devProcess = await wc.spawn(command, args);
+    console.log('[WC] Process spawned, waiting for server-ready...');
 
     devProcess.output.pipeTo(
         new WritableStream({
             write(data) {
                 const cleaned = cleanTerminalLog(data);
                 if (cleaned) {
+                    console.log('[WC stdout]', cleaned.trim());
                     onTerminalLog?.(cleaned);
                 }
             },
         })
     );
 
-    wc.on('server-ready', (_port, url) => {
-        console.log("Webcontainer ready",url,_port)
-        iframeEl.src = url;
+    const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('server-ready timeout after 30s — check console logs')), 30_000)
+    );
+
+    try {
+        const url = await Promise.race([urlWhenReady, timeout]);
+        console.log('[WC] Server ready at:', url);
         onUrlReady?.(url);
         onTerminalLog?.(`\n✓ Server ready at ${url}\n`);
-    });
+    } catch (err) {
+        console.error('[WC] startDevServer error:', err);
+        onTerminalLog?.(`\n✗ ${err}\n`);
+        throw err;
+    }
 }
 
-/** Dynamic npm install cycle */
 export async function runInstall(onTerminalLog?: (data: string) => void) {
     const wc = await getContainerInstance();
     onTerminalLog?.('✦ Synergy Orchestrating Dependencies...\n');
@@ -201,50 +227,46 @@ export async function runInstall(onTerminalLog?: (data: string) => void) {
         new WritableStream({
             write(data) {
                 const cleaned = cleanTerminalLog(data);
-                if (cleaned.toLowerCase().includes('err') || cleaned.toLowerCase().includes('warn')) {
-                    onTerminalLog?.(cleaned);
+                if (cleaned) {
+                    console.log('[npm install]', cleaned.trim());
+                    if (cleaned.toLowerCase().includes('err') || cleaned.toLowerCase().includes('warn')) {
+                        onTerminalLog?.(cleaned);
+                    }
                 }
             },
         })
     );
 
     const exitCode = await installProcess.exit;
+    console.log('[WC] npm install exit code:', exitCode);
     onTerminalLog?.('✓ Dependencies Synchronized\n');
     return exitCode;
 }
 
-/** Check if project needs install based on package.json presence */
 export async function needsInstall(): Promise<boolean> {
     const wc = await getContainerInstance();
     try {
         await wc.fs.readFile('package.json');
-        return true; // We have a package.json, let's play it safe and install deps
+        return true;
     } catch {
-        return false; // No package.json, probably a static project
+        return false;
     }
 }
 
-export async function writeContainerFile(path: string, contents: string) {
+export async function writeContainerFile(filePath: string, contents: string) {
     const wc = await getContainerInstance();
-    const parts = path.split('/');
+    const parts = filePath.split('/');
     if (parts.length > 1) {
         let currentPath = '';
         for (let i = 0; i < parts.length - 1; i++) {
             currentPath += (currentPath ? '/' : '') + parts[i];
-            try {
-                await wc.fs.mkdir(currentPath);
-            } catch (e) {
-                // Ignore if directory already exists
-            }
+            try { await wc.fs.mkdir(currentPath); } catch { /* exists */ }
         }
     }
-    await wc.fs.writeFile(path, contents);
+    await wc.fs.writeFile(filePath, contents);
 }
 
-export async function readContainerFile(path: string): Promise<string> {
+export async function readContainerFile(filePath: string): Promise<string> {
     const wc = await getContainerInstance();
-    // Smart Command Detection
-    let command = 'npm';
-    let args = ['run', 'dev'];
-    return await wc.fs.readFile(path, 'utf-8');
+    return await wc.fs.readFile(filePath, 'utf-8');
 }

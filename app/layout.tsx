@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import GlobalEffects from "./components/GlobalEffects";
+import ReduxProvider from "../components/ReduxProvider";
 
 
 export const metadata: Metadata = {
@@ -16,8 +17,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text)' }}>
-        <GlobalEffects />
-        {children}
+        <ReduxProvider>
+          <GlobalEffects />
+          {children}
+        </ReduxProvider>
       </body>
     </html>
   );

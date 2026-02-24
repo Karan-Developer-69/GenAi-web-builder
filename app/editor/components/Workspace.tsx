@@ -20,7 +20,6 @@ interface WorkspaceProps {
     runStatus: any;
     clearTerminal: () => void;
     deviceMode: 'desktop' | 'tablet' | 'mobile';
-    iframeRef: React.RefObject<HTMLIFrameElement | null>;
     previewUrl: string;
     status: string;
     isBuilding: boolean;
@@ -45,7 +44,6 @@ export default function Workspace({
     runStatus,
     clearTerminal,
     deviceMode,
-    iframeRef,
     previewUrl,
     status,
     isBuilding,
@@ -59,7 +57,7 @@ export default function Workspace({
 }: WorkspaceProps) {
     return (
         <div className="flex-1 flex min-w-0 overflow-hidden bg-zinc-950">
-            {viewMode === 'code' ? (
+            <div className={viewMode === 'code' ? 'flex-1 flex overflow-hidden' : 'hidden'}>
                 <div className="flex-1 flex overflow-hidden">
                     {/* File Tree Panel */}
                     <aside className="w-48 bg-zinc-950 border-r border-zinc-800 flex flex-col overflow-hidden">
@@ -104,14 +102,23 @@ export default function Workspace({
 
                         {/* Editor Area */}
                         <div className="flex-1 flex flex-col overflow-hidden relative">
-                            <CodeEditor
-                                value={editorContent}
-                                fileName={activeFile.name}
-                                onChange={(val) => setEditorContent(val)}
-                                onSave={async () => {
-                                    // In a real app we'd trigger a save here
-                                }}
-                            />
+                            {activeFile ? (
+                                <CodeEditor
+                                    value={editorContent}
+                                    fileName={activeFile.name}
+                                    onChange={(val) => setEditorContent(val)}
+                                    onSave={async () => {
+                                        // In a real app we'd trigger a save here
+                                    }}
+                                />
+                            ) : (
+                                <div className="flex-1 flex items-center justify-center bg-zinc-950 text-zinc-500">
+                                    <div className="text-center">
+                                        <div className="text-4xl mb-4 opacity-20">📄</div>
+                                        <p className="text-sm">Select a file to begin editing</p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Terminal Area */}
@@ -124,8 +131,10 @@ export default function Workspace({
                         </div>
                     </main>
                 </div>
-            ) : (
-                /* Preview Panel */
+            </div>
+
+            <div className={viewMode === 'preview' ? 'flex-1 flex overflow-hidden' : 'hidden'}>
+                {/* Preview Panel */}
                 <section className="flex-1 flex flex-col bg-zinc-900 relative">
                     <div className={cn(
                         "flex-1 relative mx-auto w-full transition-all duration-500 ease-in-out bg-white overflow-hidden",
@@ -133,7 +142,6 @@ export default function Workspace({
                         deviceMode === 'mobile' && "max-w-[390px] my-10 rounded-[3rem] shadow-2xl border-[12px] border-zinc-950 ring-1 ring-white/5"
                     )}>
                         <Preview
-                            iframeRef={iframeRef}
                             url={previewUrl}
                             loading={status === 'idle' || status === 'booting' || isBuilding}
                             onRestartServer={onRestartServer}
@@ -153,7 +161,7 @@ export default function Workspace({
                         )}
                     </div>
                 </section>
-            )}
+            </div>
         </div>
     );
 }

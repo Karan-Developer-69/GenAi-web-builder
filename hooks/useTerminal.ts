@@ -1,13 +1,17 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { RootState } from '../lib/store/store';
+import { appendLine as appendLineAction, updateLastLine as updateLastLineAction, clearLines } from '../lib/store/slices/terminalSlice';
 
 export interface TerminalLine {
     id: string;
     content: string;
-    type: 'log' | 'command' | 'success' | 'error' | 'process';
+    type: 'log' | 'error' | 'success' | 'process';
 }
 
 export function useTerminal() {
-    const [lines, setLines] = useState<TerminalLine[]>([]);
+    const dispatch = useDispatch();
+    const lines = useSelector((state: RootState) => state.terminal.lines);
 
     const sanitize = useCallback((data: string) => {
         if (!data) return '';
@@ -21,36 +25,17 @@ export function useTerminal() {
     const appendLine = useCallback((content: string, type: TerminalLine['type'] = 'log') => {
         const cleaned = sanitize(content);
         if (!cleaned && type === 'log') return;
-
-        setLines((prev) => [
-            ...prev,
-            {
-                id: Math.random().toString(36).substring(2, 9),
-                content: cleaned,
-                type,
-            },
-        ]);
-    }, [sanitize]);
+        dispatch(appendLineAction({ content: cleaned, type }));
+    }, [dispatch, sanitize]);
 
     const updateLastLine = useCallback((content: string, type: TerminalLine['type'] = 'process') => {
         const cleaned = sanitize(content);
-        setLines((prev) => {
-            if (prev.length === 0) {
-                return [{ id: Math.random().toString(36).substring(2, 9), content: cleaned, type }];
-            }
-            const newLines = [...prev];
-            newLines[newLines.length - 1] = {
-                ...newLines[newLines.length - 1],
-                content: cleaned,
-                type,
-            };
-            return newLines;
-        });
-    }, [sanitize]);
+        dispatch(updateLastLineAction({ content: cleaned, type }));
+    }, [dispatch, sanitize]);
 
     const clear = useCallback(() => {
-        setLines([]);
-    }, []);
+        dispatch(clearLines());
+    }, [dispatch]);
 
     return {
         lines,

@@ -254,6 +254,7 @@ CODE QUALITY
     }
 
     try {
+      
       const repairedJson = repairTruncatedJSON(fullContent);
       const rawFiles: FileEntry[] = JSON.parse(repairedJson);
 

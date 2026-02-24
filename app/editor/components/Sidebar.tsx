@@ -5,20 +5,22 @@ import { cn } from '@/lib/utils';
 import { FiSend } from 'react-icons/fi';
 
 interface SidebarProps {
-    chatMessages: { role: 'user' | 'assistant', content: string }[];
+    chatMessages: { role: 'user' | 'assistant' | 'system', content: string }[];
     isTyping: boolean;
-    setChatInput: React.Dispatch<React.SetStateAction<string>>;
+    chatInput: string;
+    setChatInput: (input: string) => void;
     handleSendMessage: () => void;
 }
 
 export default function Sidebar({
     chatMessages,
     isTyping,
+    chatInput,
     setChatInput,
     handleSendMessage,
 }: SidebarProps) {
     return (
-        <aside className="w-72 min-w-[288px] flex flex-col overflow-hidden border-r border-zinc-800 bg-zinc-900 z-40">
+        <aside className="w-1/3 min-w-[288px] flex flex-col overflow-hidden border-r border-zinc-800 bg-zinc-900 z-40">
             {/* Top Label */}
             <div className="px-4 py-3 border-b border-zinc-800">
                 <span className="text-zinc-400 uppercase text-xs font-semibold tracking-widest">
@@ -73,31 +75,30 @@ export default function Sidebar({
                     border-zinc-800 group-focus-within:border-zinc-700
                     `}>
                     <textarea
-                        className="w-full relative bg-transparent top-5 left-5 text-zinc-100 placeholder-zinc-600 outline-none resize-none text-sm h-30 pb-8"
-                        
+                        className="w-full relative bg-transparent top-5 left-5 text-zinc-100 placeholder-zinc-600 outline-none resize-none text-sm h-38 pb-8 focus:ring-0"
                         placeholder="Ask to build..."
+                        value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
                                 handleSendMessage();
-                                e.currentTarget.value = '';
                             }
                         }}
                     />
-                    
+
                     {/* Bottom Input Actions */}
                     <div className="absolute bottom-3 left-3 right-3 flex justify-between items-center">
-                        
-                        
+
+
                         <button
-                        onClick={handleSendMessage}
-                        className="ml-auto cursor-pointer w-8 h-8 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-sm  flex items-center gap-2 transition-all duration-200 active:scale-95 shadow-sm flex items-center justify-center"
+                            onClick={handleSendMessage}
+                            className="ml-auto cursor-pointer w-8 h-8 bg-blue-500 hover:bg-blue-600 text-white font-semibold rounded-sm  flex items-center gap-2 transition-all duration-200 active:scale-95 shadow-sm flex items-center justify-center"
                         >
-                        <FiSend />  
+                            <FiSend />
                         </button>
                     </div>
-                    </div>
+                </div>
             </div>
         </aside>
     );
