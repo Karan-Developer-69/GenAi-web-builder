@@ -85,7 +85,7 @@ export default function Workspace({
                                     key={file.path}
                                     className={cn(
                                         "px-4 flex items-center gap-2 border-r border-zinc-800 text-[11px] font-mono transition-all min-w-[120px]",
-                                        activeFile.path === file.path
+                                        activeFile?.path === file.path
                                             ? "bg-zinc-950 border-t border-t-indigo-500 text-indigo-400 font-semibold"
                                             : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
                                     )}

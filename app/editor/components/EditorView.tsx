@@ -88,27 +88,47 @@ export default function EditorView() {
     const setViewModeFunc = (mode: 'code' | 'preview') => dispatch(setViewMode(mode));
     const setErrorDataFunc = (data: any) => dispatch(setErrorData(data));
 
-    const processGeneration = useCallback(async (prompt: string, currentFiles: FileEntry[]) => {
+    const processGeneration = useCallback(async (prompt: string, currentFiles: FileEntry[], messages: any[] = []) => {
         try {
+            // Step 1: Planning Mode
+            dispatch(appendLine({ content: '✦ Planning project architecture...', type: 'process' }));
+            const planRes = await fetch('/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, messages, mode: 'plan' }),
+            });
+            if (!planRes.ok) throw new Error('Planning failed');
+            const { tasks } = await planRes.json();
+
+            if (tasks) {
+                // Display plan in chat
+                const planMsg = `✦ **Architecture Plan:**\n\n${tasks.map((t: any) => `**Step ${t.id}: ${t.task}**\n${t.description}`).join('\n\n')}`;
+                dispatch(addMessage({ role: 'assistant', content: planMsg }));
+                dispatch(appendLine({ content: '✓ Plan established', type: 'success' }));
+            }
+
+            // Step 2: Execution Mode
+            dispatch(appendLine({ content: '✦ Ordinating code generation...', type: 'process' }));
             const res = await fetch('/api/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt }),
+                body: JSON.stringify({ prompt, messages, mode: 'execute', plan: tasks }),
             });
             if (!res.ok) throw new Error('Generation failed');
             const data = await res.json();
+
             if (data.files) {
                 let updatedFiles = [...currentFiles];
                 for (const file of data.files) {
                     await writeContainerFile(file.path, file.content);
-                    if (!updatedFiles.find(f => f.path === file.path)) {
-                        const newFile = {
+                    const existingIndex = updatedFiles.findIndex(f => f.path === file.path);
+                    if (existingIndex === -1) {
+                        updatedFiles.push({
                             name: file.path.split('/').pop() || file.path,
                             path: file.path,
                             language: getLanguage(file.path),
                             isDirectory: false,
-                        };
-                        updatedFiles.push(newFile);
+                        });
                     }
                 }
                 dispatch(setFiles(updatedFiles));
@@ -120,9 +140,11 @@ export default function EditorView() {
                     const content = await readContainerFile(firstFile.path);
                     dispatch(setEditorContent(content));
                 }
+                return data.files;
             }
         } catch (err) {
             console.error('Generation error:', err);
+            dispatch(appendLine({ content: `✗ Generation disrupted: ${err}`, type: 'error' }));
         }
     }, [dispatch, activeFile, files]);
 
@@ -221,7 +243,48 @@ export default function EditorView() {
 
     // In processGeneration, removed unused variables and cleaned up
 
+    const runDevServer = useCallback(async (cancelled: boolean) => {
+        dispatch(setRunStatus('running'));
+        dispatch(appendLine({ content: 'Starting dev server…', type: 'process' }));
+
+        await startDevServer(
+            (data) => {
+                if (!cancelled) {
+                    if (data.includes('$')) dispatch(appendLine({ content: data, type: 'process' }));
+                    else if (data.includes('✓')) dispatch(appendLine({ content: data, type: 'success' }));
+                    else dispatch(appendLine({ content: data, type: 'log' }));
+                }
+            },
+            (url) => {
+                if (!cancelled) {
+                    console.log('[EditorView] Preview URL received:', url);
+                    dispatch(setPreviewUrl(url));
+                    dispatch(setStatus('running'));
+
+                    // Popup opening sequence
+                    if (!popupRef.current || popupRef.current.closed) {
+                        popupRef.current = window.open(
+                            '/webcontainer/connect/init',
+                            'wc-preview',
+                            'width=1200,height=800'
+                        );
+                    }
+
+                    if (popupRef.current) {
+                        popupRef.current.location.href = url;
+                    } else {
+                        dispatch(appendLine({ content: '⚠ Preview popup blocked. Please allow popups.', type: 'error' }));
+                    }
+                }
+            }
+        );
+    }, [dispatch]);
+
+    const isBooting = useRef(false);
+
     useEffect(() => {
+        if (isBooting.current) return;
+        isBooting.current = true;
         let cancelled = false;
         async function boot() {
             try {
@@ -240,25 +303,24 @@ export default function EditorView() {
                 dispatch(setBooted(true));
                 dispatch(updateLastLine({ content: '✓ WebContainer ready', type: 'success' }));
 
-                // ✅ FIX: prompt processing pehle, parallel mein chal sakta hai
                 const prompt = searchParams.get('prompt');
                 if (prompt) {
                     dispatch(setMessages([{ role: 'user', content: prompt }]));
-                    // processGeneration ko await mat karo — server boot parallel mein chale
-                    processGeneration(prompt, files).then(() => {
-                        setTimeout(() => {
-                            dispatch(addMessage({
-                                role: 'assistant',
-                                content: "✦ I've analyzed your prompt and started building.\n\nThe preview is live on the right. Ask me to change anything — colors, layout, copy, or sections. I'm listening."
-                            }));
-                        }, 3500);
-                    });
+                    dispatch(appendLine({ content: '✦ AI is orchestrating your project...', type: 'process' }));
+
+                    // Wait for generation to complete before proceeding
+                    await processGeneration(prompt, files);
+
+                    setTimeout(() => {
+                        dispatch(addMessage({
+                            role: 'assistant',
+                            content: "✦ I've analyzed your prompt and built your project. The dev server is starting now."
+                        }));
+                    }, 1000);
                 }
 
-                // Removed iframe check as we are using popups
-
-                // Install dependencies
-                const filesList = await wc.fs.readdir('.');
+                // Check for package.json AFTER generation (or if no prompt)
+                const filesList = (await wc.fs.readdir('.').catch(() => [])) as string[];
                 const hasPackageJson = filesList.includes('package.json');
 
                 if (hasPackageJson) {
@@ -280,45 +342,13 @@ export default function EditorView() {
                     clearInterval(spinInterval);
                     if (exitCode !== 0) throw new Error('npm install failed');
                     dispatch(updateLastLine({ content: '✓ Dependencies installed', type: 'success' }));
+
+                    // Only start dev server if package.json exists
+                    await runDevServer(cancelled);
+                } else {
+                    dispatch(setStatus('idle'));
+                    dispatch(updateLastLine({ content: '✦ Ready. Describe your project to start.', type: 'success' }));
                 }
-
-                // ✅ FIX: startDevServer HAMESHA chalega — install ke baad bhi
-                dispatch(setRunStatus('running'));
-                dispatch(appendLine({ content: 'Starting dev server…', type: 'process' }));
-
-                await startDevServer(
-                    (data) => {
-                        if (!cancelled) {
-                            if (data.includes('$')) dispatch(appendLine({ content: data, type: 'process' }));
-                            else if (data.includes('✓')) dispatch(appendLine({ content: data, type: 'success' }));
-                            else dispatch(appendLine({ content: data, type: 'log' }));
-                        }
-                    },
-                    (url) => {
-                        if (!cancelled) {
-                            console.log('[EditorView] Preview URL received:', url);
-                            dispatch(setPreviewUrl(url));
-                            dispatch(setStatus('running'));
-
-                            // Popup opening sequence
-                            if (!popupRef.current || popupRef.current.closed) {
-                                // First open the connection page to establish the window
-                                popupRef.current = window.open(
-                                    '/webcontainer/connect/init',
-                                    'wc-preview',
-                                    'width=1200,height=800'
-                                );
-                            }
-
-                            if (popupRef.current) {
-                                // Then navigate to the actual WebContainer URL
-                                popupRef.current.location.href = url;
-                            } else {
-                                dispatch(appendLine({ content: '⚠ Preview popup blocked. Please allow popups.', type: 'error' }));
-                            }
-                        }
-                    }
-                );
             } catch (err) {
                 if (!cancelled) {
                     dispatch(setStatus('error'));
@@ -330,7 +360,7 @@ export default function EditorView() {
         }
         boot();
         return () => { cancelled = true; };
-    }, [dispatch, processGeneration, searchParams, files]);
+    }, [dispatch, processGeneration, searchParams]);
 
     const handleSendMessage = async () => {
         if (!chatInput.trim() || isTyping) return;
@@ -342,52 +372,14 @@ export default function EditorView() {
         dispatch(setIsTyping(true));
 
         try {
-            // FIX: API route now receives `messages` array — route.ts updated to handle both
-            // `prompt` (initial generation) and `messages` (chat flow)
-            const res = await fetch('/api/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    messages: [...chatMessages, { role: 'user', content: userMsg }]
-                }),
-            });
+            // FIX: Use multi-step generation flow for chat as well
+            const generatedFiles = await processGeneration(userMsg, files, [...chatMessages, { role: 'user', content: userMsg }]);
 
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({ error: res.statusText }));
-                throw new Error(errData.error || `API returned ${res.status}`);
-            }
+            if (generatedFiles) {
+                const changedPaths = generatedFiles.map((f: any) => f.path).join(', ');
+                dispatch(addMessage({ role: 'assistant', content: `✦ Assets deployed: \`${changedPaths}\`` }));
 
-            // Non-streaming: route returns { files } JSON
-            const data = await res.json();
-
-            if (data.files) {
-                // Build assistant message summarizing what changed
-                const changedPaths = data.files.map((f: any) => f.path).join(', ');
-                dispatch(addMessage({ role: 'assistant', content: `✦ Updated: \`${changedPaths}\`` }));
-
-                let hasPackageJsonUpdate = false;
-                let updatedFiles = [...files];
-
-                for (const file of data.files) {
-                    if (file.path === 'package.json') hasPackageJsonUpdate = true;
-                    await writeContainerFile(file.path, file.content);
-
-                    const existingIndex = updatedFiles.findIndex(f => f.path === file.path);
-                    if (existingIndex === -1) {
-                        updatedFiles.push({
-                            name: file.path.split('/').pop() || file.path,
-                            path: file.path,
-                            language: getLanguage(file.path),
-                            isDirectory: false,
-                        });
-                    }
-
-                    if (activeFile && file.path === activeFile.path) {
-                        dispatch(setEditorContent(file.content));
-                    }
-                }
-
-                dispatch(setFiles(updatedFiles));
+                const hasPackageJsonUpdate = generatedFiles.some((f: any) => f.path === 'package.json');
 
                 if (hasPackageJsonUpdate) {
                     dispatch(setRunStatus('installing'));
@@ -395,14 +387,12 @@ export default function EditorView() {
                     const exitCode = await runInstall((logLine) => dispatch(appendLine({ content: logLine, type: 'log' })));
                     if (exitCode === 0) {
                         dispatch(updateLastLine({ content: '✓ Dependencies updated', type: 'success' }));
-                        dispatch(setRunStatus('running'));
+                        await runDevServer(false);
                     } else {
                         dispatch(setRunStatus('error'));
                         dispatch(appendLine({ content: '✗ Dependency sync failed', type: 'error' }));
                     }
                 }
-            } else if (data.error) {
-                throw new Error(data.error);
             }
         } catch (err: any) {
             dispatch(setErrorData({
@@ -466,8 +456,8 @@ export default function EditorView() {
         try {
             const exitCode = await runInstall((logLine) => dispatch(appendLine({ content: logLine, type: 'log' })));
             if (exitCode === 0) {
-                dispatch(setRunStatus('idle'));
-                dispatch(appendLine({ content: '✓ Dependencies installed', type: 'success' }));
+                dispatch(updateLastLine({ content: '✓ Dependencies installed', type: 'success' }));
+                await runDevServer(false);
             } else {
                 dispatch(setRunStatus('error'));
                 dispatch(appendLine({ content: '✗ Failed to install dependencies', type: 'error' }));

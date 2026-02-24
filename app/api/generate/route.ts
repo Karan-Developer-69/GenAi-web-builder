@@ -2,287 +2,164 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'edge';
 
-// ─── Robust JSON Repair ───────────────────────────────────────────────────────
-// Extracts all COMPLETE { path, content } objects from a potentially
-// truncated JSON array using a character-level state machine.
+/* ───────────────── JSON REPAIR ───────────────── */
 function repairTruncatedJSON(raw: string): string {
   let json = raw.trim();
 
-  if (json.startsWith('```json')) json = json.replace(/^```json/, '').replace(/```$/, '').trim();
-  else if (json.startsWith('```')) json = json.replace(/^```/, '').replace(/```$/, '').trim();
+  if (json.startsWith('```')) {
+    json = json.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
+  }
 
-  try { JSON.parse(json); return json; } catch (_) {}
+  try {
+    JSON.parse(json);
+    return json;
+  } catch {}
 
-  const completeObjects: string[] = [];
+  const objects: string[] = [];
   let depth = 0;
   let inString = false;
   let escape = false;
-  let objectStart = -1;
+  let start = -1;
 
   for (let i = 0; i < json.length; i++) {
-    const ch = json[i];
-    if (escape) { escape = false; continue; }
-    if (ch === '\\' && inString) { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
+    const c = json[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (c === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+
     if (inString) continue;
 
-    if (ch === '[' && depth === 0) {
-      depth = 1;
-    } else if (ch === '{') {
-      if (depth === 1) objectStart = i;
+    if (c === '{') {
+      if (depth === 1) start = i;
       depth++;
-    } else if (ch === '}') {
+    }
+
+    if (c === '}') {
       depth--;
-      if (depth === 1 && objectStart !== -1) {
-        completeObjects.push(json.slice(objectStart, i + 1));
-        objectStart = -1;
+      if (depth === 1 && start !== -1) {
+        objects.push(json.slice(start, i + 1));
+        start = -1;
       }
     }
   }
 
-  if (completeObjects.length === 0) {
-    throw new Error('No complete JSON objects could be extracted');
+  if (!objects.length) throw new Error('No valid JSON objects found');
+  return `[${objects.join(',')}]`;
+}
+
+/* ─────────────── STRICT VALIDATION ─────────────── */
+function validateFiles(files: { path: string; content: string }[]) {
+  const paths = files.map(f => f.path);
+
+  const mustExist = [
+    'index.html',
+    'package.json',
+    'src/main.tsx',
+    'src/App.tsx',
+    'src/styles/globals.css',
+  ];
+
+  for (const req of mustExist) {
+    if (!paths.includes(req)) {
+      throw new Error(`Missing required file: ${req}`);
+    }
   }
 
-  return '[' + completeObjects.join(',') + ']';
+  for (const p of paths) {
+    if (p.startsWith('styles/')) {
+      throw new Error(`Illegal root styles folder: ${p}`);
+    }
+    if (p === 'main.tsx') {
+      throw new Error(`main.tsx must be inside src/`);
+    }
+  }
 }
 
-// ─── Path Correction ──────────────────────────────────────────────────────────
-// AI sometimes places files at wrong paths despite instructions.
-// This corrects known misplacements for Vite + React projects.
-interface FileEntry { path: string; content: string; }
-
-function correctFilePaths(files: FileEntry[]): FileEntry[] {
-  return files.map(file => {
-    let { path, content } = file;
-
-    // Root-level config files mistakenly placed inside src/
-    const rootFiles = [
-      'package.json', 'vite.config.ts', 'vite.config.js',
-      'tsconfig.json', 'tsconfig.node.json',
-      'tailwind.config.ts', 'tailwind.config.js',
-      'postcss.config.cjs', 'postcss.config.js',
-      'index.html', 'README.md', '.env.example', '.gitignore',
-    ];
-    for (const rootFile of rootFiles) {
-      if (path === `src/${rootFile}`) {
-        path = rootFile;
-        break;
-      }
-    }
-
-    // src/main.tsx or src/App.tsx placed at root (no folder)
-    if (path === 'main.tsx' || path === 'main.jsx') path = `src/${path}`;
-    if (path === 'App.tsx' || path === 'App.jsx') path = `src/${path}`;
-
-    // Component/page files placed directly in src/ instead of subfolders
-    // e.g. src/Navbar.tsx → src/components/Navbar.tsx
-    // (only apply if it's clearly a component, not main/App/styles)
-    const srcRootMatch = path.match(/^src\/([A-Z][^/]+\.(tsx|jsx))$/);
-    if (srcRootMatch) {
-      const filename = srcRootMatch[1];
-      // Don't move App.tsx or files that already have correct placement
-      if (filename !== 'App.tsx' && filename !== 'App.jsx') {
-        path = `src/components/${filename}`;
-      }
-    }
-
-    // Fix index.html script src if it points to wrong path
-    if (path === 'index.html') {
-      // Ensure script always points to /src/main.tsx (or .jsx)
-      content = content
-        .replace(/src="\/main\.(tsx|jsx)"/, 'src="/src/main.$1"')
-        .replace(/src="main\.(tsx|jsx)"/, 'src="/src/main.$1"');
-    }
-
-    return { path, content };
-  });
-}
-
+/* ───────────────── MAIN HANDLER ───────────────── */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
-    let prompt: string;
-    if (body.prompt) {
-      prompt = body.prompt;
-    } else if (body.messages && Array.isArray(body.messages)) {
-      const lastUserMsg = [...body.messages]
-        .reverse()
-        .find((m: { role: string; content: string }) => m.role === 'user');
-      if (!lastUserMsg) {
-        return NextResponse.json({ error: 'No user message found in messages array' }, { status: 400 });
-      }
-      prompt = lastUserMsg.content;
-    } else {
-      return NextResponse.json(
-        { error: 'Request body must contain either "prompt" string or "messages" array' },
-        { status: 400 }
-      );
-    }
+    const prompt = body.prompt;
 
     if (!prompt?.trim()) {
-      return NextResponse.json({ error: 'Prompt cannot be empty' }, { status: 400 });
+      return NextResponse.json({ error: 'Prompt empty' }, { status: 400 });
     }
 
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: 'GROQ_API_KEY not configured' }, { status: 500 });
+      return NextResponse.json({ error: 'GROQ_API_KEY missing' }, { status: 500 });
     }
 
-    const systemPrompt = `You are Lysis AI v4.0 — an elite, world-class full-stack software architect and engineer.
+    const systemPrompt = `
+You are Lysis AI v5.0 — a deterministic Vite + React project generator.
 
-Your mission: Given a user prompt, generate a COMPLETE, MODULAR, PRODUCTION-READY project.
+RULES (ABSOLUTE):
+- Tailwind CSS ONLY
+- globals.css ONLY at src/styles/globals.css
+- NO CSS elsewhere
+- main.tsx ONLY at src/main.tsx
+- index.html MUST load /src/main.tsx
+- NEVER guess paths
+- NEVER output markdown
 
-═══════════════════════════════════════════════════════════════
-OUTPUT FORMAT — STRICT
-═══════════════════════════════════════════════════════════════
-Return a raw JSON array of objects:
-[{ "path": "string", "content": "string" }, ...]
+OUTPUT:
+Return ONLY JSON array:
+[{ "path": "string", "content": "string" }]
 
-CRITICAL: Complete the entire array. Last character MUST be ].
-Never truncate mid-file. If near token limit, close current file and end array.
+If any rule breaks → regenerate internally.
+Last character MUST be ]
+`;
 
-═══════════════════════════════════════════════════════════════
-TECHNOLOGY STACK
-═══════════════════════════════════════════════════════════════
-- React + Vite  → Vite 5, React 18, TypeScript, Tailwind via PostCSS
-
-═══════════════════════════════════════════════════════════════
-FILE PLACEMENT — MEMORIZE THIS, NO EXCEPTIONS
-═══════════════════════════════════════════════════════════════
-For React + Vite projects the structure is EXACTLY:
-
-  package.json          ← ROOT (no folder)
-  vite.config.ts        ← ROOT
-  tsconfig.json         ← ROOT
-  tailwind.config.ts    ← ROOT (if Tailwind used)
-  postcss.config.cjs    ← ROOT (if Tailwind used)
-  index.html            ← ROOT — script MUST point to "/main.tsx"
-  README.md             ← ROOT
-
-  /main.tsx          ← ALWAYS "/main.tsx", NEVER "/src/main.tsx" at root
-  /App.tsx           ← ALWAYS "/App.tsx", NEVER "/src/App.tsx" at root
-  src/styles/globals.css
-
-  src/components/       ← All reusable UI components
-  src/pages/            ← Route-level views
-  src/hooks/            ← Custom React hooks
-  src/utils/            ← Helper functions  
-
-WRONG ❌               CORRECT ✅
-"src/main.tsx"             "main.tsx"
-"src/App.tsx"              "App.tsx"
-"src/index.html"       "index.html"
-"src/package.json"     "package.json"
-"src/Navbar.tsx"       "src/components/Navbar.tsx"
-
-index.html script tag:
-  ✅ <script type="module" src="/src/main.tsx"></script>
-  ❌ <script type="module" src="/main.tsx"></script>
-
-═══════════════════════════════════════════════════════════════
-DESIGN SYSTEM: "Obsidian Synergy"
-═══════════════════════════════════════════════════════════════
-Fonts: "Plus Jakarta Sans" or "DM Sans" via Google Fonts
-Effects: Glassmorphism (bg-white/60 backdrop-blur-xl), Framer Motion
-Cards: rounded-2xl shadow-sm border border-slate-200
-Buttons: rounded-xl px-6 py-3 hover:scale-105 transition
-Inputs: rounded-xl border focus:ring-2 focus:ring-blue-500
-Nav: sticky top-0 backdrop-blur border-b
-
-═══════════════════════════════════════════════════════════════
-CODE QUALITY
-═══════════════════════════════════════════════════════════════
-- TypeScript strict mode
-- Named + default exports on every component
-- Accessible HTML: aria-labels, semantic tags
-- Mobile-first Tailwind breakpoints
-- Response MUST start with '[' and end with ']'`;
-
-    const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         model: 'openai/gpt-oss-120b',
+        temperature: 0.3,
+        max_tokens: 6000,
+        stream: false,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: prompt },
         ],
-        temperature: 0.7,
-        max_tokens: 8192,
-        stream: true,
       }),
     });
 
-    if (!groqRes.ok) {
-      const errText = await groqRes.text();
-      return NextResponse.json(
-        { error: `Groq API error: ${errText}` },
-        { status: groqRes.status }
-      );
+    if (!res.ok) {
+      return NextResponse.json({ error: await res.text() }, { status: res.status });
     }
 
-    const reader = groqRes.body?.getReader();
-    if (!reader) {
-      return NextResponse.json({ error: 'No response stream from Groq' }, { status: 500 });
-    }
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content ?? '';
 
-    const decoder = new TextDecoder();
-    let fullContent = '';
+    const repaired = repairTruncatedJSON(raw);
+    const files = JSON.parse(repaired);
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
+    validateFiles(files);
 
-      for (const line of chunk.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const payload = line.slice(6).trim();
-        if (payload === '[DONE]') break;
-        try {
-          const parsed = JSON.parse(payload);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) fullContent += delta;
-        } catch {
-          // Partial SSE frame — skip
-        }
-      }
-    }
-
-    try {
-      
-      const repairedJson = repairTruncatedJSON(fullContent);
-      const rawFiles: FileEntry[] = JSON.parse(repairedJson);
-
-      // ── Post-process: fix any path misplacements ──────────────────────────
-      const files = correctFilePaths(rawFiles);
-      const wasRepaired = repairedJson !== fullContent.trim();
-      const pathsFixed = files.some((f, i) => f.path !== rawFiles[i]?.path);
-
-      return NextResponse.json({
-        files,
-        ...(wasRepaired && {
-          warning: `Response truncated — ${files.length} complete files recovered`,
-        }),
-        ...(pathsFixed && {
-          info: 'Some file paths were automatically corrected',
-        }),
-      });
-    } catch (parseErr) {
-      return NextResponse.json(
-        {
-          error: 'Failed to generate valid project structure',
-          detail: parseErr instanceof Error ? parseErr.message : 'Unknown parse error',
-          raw: fullContent.slice(0, 800) + (fullContent.length > 800 ? '…[truncated]' : ''),
-        },
-        { status: 500 }
-      );
-    }
-  } catch (err) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ files });
+  } catch (err: any) {
+    return NextResponse.json(
+      {
+        error: 'Generation failed',
+        detail: err.message,
+      },
+      { status: 500 }
+    );
   }
 }

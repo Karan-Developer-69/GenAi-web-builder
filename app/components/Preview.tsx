@@ -12,7 +12,6 @@ interface PreviewProps {
 
 export default function Preview({ url, loading, onRestartServer, onClearContainer, onInstallDeps }: PreviewProps) {
     const displayUrl = url || 'Waiting for server…';
-    console.log("Url => ", displayUrl)
 
     const handleRefresh = () => {
         // Refresh handled by EditorView or via window.location.reload()
@@ -265,8 +264,9 @@ export default function Preview({ url, loading, onRestartServer, onClearContaine
                     background: 'var(--bg-primary)',
                 }}>
                     {url && (
-                       <iframe src={url} className='w-full h-full '
-  referrerPolicy="no-referrer"></iframe>
+                       <iframe src={url} className='w-full h-full'
+                            allow='geolocation; ch-ua-full-version-list; cross-origin-isolated; screen-wake-lock; on-device-speech-recognition; publickey-credentials-get; ch-ua-arch; compute-pressure; ch-prefers-reduced-transparency; deferred-fetch; usb; ch-save-data; publickey-credentials-create; cardano; deferred-fetch-minimal; ch-downlink; ch-ua-form-factors; payment; ch-ua; ch-ua-model; ch-ect; autoplay; ethereum; camera; accelerometer; ch-ua-platform-version; idle-detection; ch-viewport-height; captured-surface-control; local-fonts; ch-ua-platform; midi; ch-ua-full-version; xr-spatial-tracking; clipboard-read; gamepad; display-capture; keyboard-map; aria-notify; local-network; ch-ua-high-entropy-values; ch-width; ch-prefers-reduced-motion; encrypted-media; gyroscope; serial; ch-rtt; ch-ua-mobile; window-management; unload; solana; ch-dpr; ch-prefers-color-scheme; ch-ua-wow64; fullscreen; identity-credentials-get; hid; ch-ua-bitness; storage-access; sync-xhr; ch-device-memory; ch-viewport-width; picture-in-picture; magnetometer; loopback-network; clipboard-write; microphone'
+                       ></iframe>
                     )}
                 </div>
             </div>
