@@ -101,8 +101,8 @@ export default function EditorView() {
             const { tasks } = await planRes.json();
 
             if (tasks) {
-                // Display plan in chat
-                const planMsg = `✦ **Architecture Plan:**\n\n${tasks.map((t: any) => `**Step ${t.id}: ${t.task}**\n${t.description}`).join('\n\n')}`;
+                // Display plan in chat using the structured <plan> tags for Sidebar rendering
+                const planMsg = `<plan>\n${tasks.map((t: any) => `- [ ] ${t.task}: ${t.description}`).join('\n')}\n</plan>`;
                 dispatch(addMessage({ role: 'assistant', content: planMsg }));
                 dispatch(appendLine({ content: '✓ Plan established', type: 'success' }));
             }
@@ -376,8 +376,8 @@ export default function EditorView() {
             const generatedFiles = await processGeneration(userMsg, files, [...chatMessages, { role: 'user', content: userMsg }]);
 
             if (generatedFiles) {
-                const changedPaths = generatedFiles.map((f: any) => f.path).join(', ');
-                dispatch(addMessage({ role: 'assistant', content: `✦ Assets deployed: \`${changedPaths}\`` }));
+                const filesContent = generatedFiles.map((f: any) => f.path).join('\n');
+                dispatch(addMessage({ role: 'assistant', content: `<files>\n${filesContent}\n</files>` }));
 
                 const hasPackageJsonUpdate = generatedFiles.some((f: any) => f.path === 'package.json');
 

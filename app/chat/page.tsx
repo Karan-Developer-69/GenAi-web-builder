@@ -48,28 +48,132 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
-function MessageContent({ content }: { content: string }) {
-  // Simple markdown-like renderer for code blocks
+import {
+  Reasoning,
+  ReasoningTrigger,
+  ReasoningContent
+} from '@/components/ai-elements/reasoning';
+import {
+  ChainOfThought,
+  ChainOfThoughtHeader,
+  ChainOfThoughtStep,
+  ChainOfThoughtContent
+} from '@/components/ai-elements/chain-of-thought';
+import {
+  Queue,
+  QueueItem,
+  QueueItemIndicator,
+  QueueItemContent,
+  QueueList,
+  QueueSection,
+  QueueSectionTrigger,
+  QueueSectionLabel,
+  QueueSectionContent
+} from '@/components/ai-elements/queue';
+
+function MessageContent({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
+  // Parsing logic for structured blocks
   const parts: React.ReactNode[] = [];
+
+  // Extract thinking block
+  const thinkingMatch = content.match(/<thinking>([\s\S]*?)(?:<\/thinking>|$)/);
+  const thinkingContent = thinkingMatch ? thinkingMatch[1].trim() : null;
+
+  // Extract plan block
+  const planMatch = content.match(/<plan>([\s\S]*?)(?:<\/plan>|$)/);
+  const planRaw = planMatch ? planMatch[1].trim() : null;
+
+  // Extract files block
+  const filesMatch = content.match(/<files>([\s\S]*?)(?:<\/files>|$)/);
+  const filesRaw = filesMatch ? filesMatch[1].trim() : null;
+
+  // Remove thinking, plan and files blocks from the main content
+  let mainContent = content
+    .replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/g, '')
+    .replace(/<plan>[\s\S]*?(?:<\/plan>|$)/g, '')
+    .replace(/<files>[\s\S]*?(?:<\/files>|$)/g, '')
+    .trim();
+
+  // 1. Render Thinking Block
+  if (thinkingContent || (isStreaming && content.includes('<thinking>'))) {
+    parts.push(
+      <Reasoning key="thinking" isStreaming={isStreaming && !content.includes('</thinking>')}>
+        <ReasoningTrigger />
+        <ReasoningContent>{thinkingContent || ""}</ReasoningContent>
+      </Reasoning>
+    );
+  }
+
+  // 2. Render Plan Block
+  if (planRaw) {
+    const planSteps = planRaw.split('\n').filter(s => s.trim()).map(s => {
+      const isComplete = s.startsWith('[x]') || s.startsWith('- [x]');
+      const label = s.replace(/^(\[x\]|\[ \]|-\s*\[x\]|-\s*\[ \])\s*/, '');
+      return { label, status: isComplete ? 'complete' : 'active' };
+    });
+
+    parts.push(
+      <ChainOfThought key="plan" className="mb-4">
+        <ChainOfThoughtHeader>Implementation Plan</ChainOfThoughtHeader>
+        <ChainOfThoughtContent>
+          {planSteps.map((step, i) => (
+            //@ts-ignore
+            <ChainOfThoughtStep key={i} label={step.label} status={step.status as any} />
+          ))}
+        </ChainOfThoughtContent>
+      </ChainOfThought>
+    );
+  }
+
+  // 3. Render Files Block
+  if (filesRaw) {
+    const fileList = filesRaw.split('\n').map(f => f.replace(/^([-* ]*)/, '').trim()).filter(f => f);
+    parts.push(
+      <Queue key="files" className="mb-4 border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/50 p-1">
+        <QueueSection>
+          <QueueSectionTrigger>
+            <QueueSectionLabel count={fileList.length} label="Deployed Assets" />
+          </QueueSectionTrigger>
+          <QueueSectionContent>
+            <QueueList>
+              {fileList.map((file, i) => (
+                <QueueItem key={i}>
+                  <div className="flex items-center gap-2">
+                    <QueueItemIndicator completed />
+                    <QueueItemContent completed>{file}</QueueItemContent>
+                  </div>
+                </QueueItem>
+              ))}
+            </QueueList>
+          </QueueSectionContent>
+        </QueueSection>
+      </Queue>
+    );
+  }
+
+  // 3. Render Main Content (Markdown-like)
+  const contentParts: React.ReactNode[] = [];
   const regex = /```(\w*)\n?([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
   let key = 0;
 
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = regex.exec(mainContent)) !== null) {
     if (match.index > lastIndex) {
-      const text = content.slice(lastIndex, match.index);
-      parts.push(<span key={key++} className="whitespace-pre-wrap">{text}</span>);
+      const text = mainContent.slice(lastIndex, match.index);
+      contentParts.push(<span key={key++} className="whitespace-pre-wrap">{text}</span>);
     }
-    parts.push(<CodeBlock key={key++} lang={match[1]} code={match[2].trimEnd()} />);
+    contentParts.push(<CodeBlock key={key++} lang={match[1]} code={match[2].trimEnd()} />);
     lastIndex = match.index + match[0].length;
   }
 
-  if (lastIndex < content.length) {
-    parts.push(<span key={key++} className="whitespace-pre-wrap">{content.slice(lastIndex)}</span>);
+  if (lastIndex < mainContent.length) {
+    contentParts.push(<span key={key++} className="whitespace-pre-wrap">{mainContent.slice(lastIndex)}</span>);
   }
 
-  return <div className="flex flex-col gap-1">{parts}</div>;
+  parts.push(<div key="main-content" className="flex flex-col gap-1">{contentParts}</div>);
+
+  return <div className="flex flex-col w-full">{parts}</div>;
 }
 
 export default function ChatPage() {
@@ -307,14 +411,14 @@ export default function ChatPage() {
               msg.role === 'user' ? "items-end" : "items-start"
             )}>
               <div className={cn(
-                "p-4 px-5 rounded-2xl text-[14px] leading-[1.6] break-words shadow-sm transition-all",
+                "p-4 px-5 rounded-2xl text-[14px] leading-[1.6] break-words shadow-sm transition-all w-full",
                 msg.role === 'user'
                   ? "bg-gradient-to-br from-purple-600 to-blue-700 text-white rounded-br-sm shadow-purple-900/10"
                   : "bg-bg-surface text-text border border-line rounded-bl-sm"
               )}>
                 {msg.content === '' && msg.role === 'assistant' && isStreaming
                   ? <TypingIndicator />
-                  : <MessageContent content={msg.content} />
+                  : <MessageContent content={msg.content} isStreaming={msg.role === 'assistant' && isStreaming && msg.id === messages[messages.length - 1].id} />
                 }
               </div>
               <span className="text-[10px] font-bold text-text-3 px-1 uppercase tracking-widest opacity-40">{formatTime(msg.timestamp)}</span>
