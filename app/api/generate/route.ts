@@ -1,177 +1,159 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { groqCall } from '@/utils/ai';
+import { NextRequest } from 'next/server';
 
-export const runtime = 'edge';
+// IMPORTANT: Do NOT use edge runtime — it cannot connect to localhost:8000
+// export const runtime = 'edge';
 
-/* ───────────────── JSON REPAIR ───────────────── */
-function repairTruncatedJSON(raw: string): string {
-  let json = raw.trim();
+/* ───────────────── SYSTEM PROMPTS ───────────────── */
 
-  // Remove markdown blocks
-  if (json.startsWith('```')) {
-    json = json.replace(/^```json/, '').replace(/^```/, '').replace(/```$/, '').trim();
-  }
+/* ─── Framework Configs ─── */
+const FRAMEWORK_CONFIGS: Record<string, { label: string; planRules: string; setupFiles: string; devCmd: string; }> = {
+  react: {
+    label: 'React (Vite)',
+    planRules: 'Use Vite + React + Tailwind CSS. The 1st task MUST ONLY create: package.json (dev: vite, include @vitejs/plugin-react in devDependencies), index.html, vite.config.ts (use @vitejs/plugin-react), tsconfig.json, tailwind.config.js, postcss.config.js, src/main.tsx, src/index.css. DO NOT SKIP package.json.',
+    setupFiles: 'package.json, index.html, vite.config.ts, tsconfig.json, tailwind.config.js, postcss.config.js, src/main.tsx, src/index.css',
+    devCmd: '"dev": "vite"',
+  },
+  nextjs: {
+    label: 'Next.js 14',
+    planRules: 'Use Next.js 14.2.0 App Router + Tailwind CSS. The 1st task MUST ONLY create: package.json (next@14.2.0, dev: next dev), next.config.js, tailwind.config.js, postcss.config.js, app/layout.tsx, app/page.tsx, app/globals.css. STRICT: DO NOT use Turbopack (--turbo).',
+    setupFiles: 'package.json, next.config.js, tailwind.config.js, postcss.config.js, app/layout.tsx, app/page.tsx, app/globals.css',
+    devCmd: '"dev": "next dev"',
+  },
+  python: {
+    label: 'Python (FastAPI)',
+    planRules: 'Use Python FastAPI. The 1st task MUST ONLY create: requirements.txt (fastapi, uvicorn, jinja2), main.py (FastAPI app), templates/index.html (Jinja2), static/style.css, run.sh (uvicorn main:app --reload). DO NOT SKIP requirements.txt.',
+    setupFiles: 'requirements.txt, main.py, templates/index.html, static/style.css, run.sh',
+    devCmd: 'uvicorn main:app --reload',
+  },
+};
 
-  // Attempt to parse directly
-  try {
-    JSON.parse(json);
-    return json;
-  } catch { }
+const buildSystemPromptPlan = (framework = 'react') => {
+  const fw = FRAMEWORK_CONFIGS[framework] ?? FRAMEWORK_CONFIGS.react;
+  return `Act as Lysis AI v7.0. Create a design system & plan for: ${fw.label}.
+Rules:
+- 1st Task: "Initial Project Setup" (${fw.setupFiles}).
+- Max 4-5 focused tasks.
+Format (XML tags):
+<thinking>...</thinking>
+<theme><name>..</name><primary>..</primary><background>..</background><text>..</text><font>..</font></theme>
+<tasks><task id="1" description="..">Initial Project Setup</task>...</tasks>`;
+};
 
-  // If it's intended to be an array or object
-  const objects: string[] = [];
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-  let start = -1;
+const buildExecutePrompt = (plan: any, theme: any, currentTask: any, existingFilePaths: string[] = [], framework = 'react') => {
+  const fw = FRAMEWORK_CONFIGS[framework] ?? FRAMEWORK_CONFIGS.react;
+  const isSetupTask = currentTask.task === "Initial Project Setup";
 
-  for (let i = 0; i < json.length; i++) {
-    const c = json[i];
-    if (escape) { escape = false; continue; }
-    if (c === '\\' && inString) { escape = true; continue; }
-    if (c === '"') { inString = !inString; continue; }
-    if (inString) continue;
+  return `Act as Lysis AI v7.0. Execute Task: ${currentTask.task}.
+Plan: ${JSON.stringify(plan)}
+Theme: ${JSON.stringify(theme)}
+Context: ${existingFilePaths.join(', ')}
 
-    if (c === '{' || c === '[') {
-      if (depth === 0) start = i;
-      depth++;
-    }
-    if (c === '}' || c === ']') {
-      depth--;
-      if (depth === 0 && start !== -1) {
-        objects.push(json.slice(start, i + 1));
-        start = -1;
-      }
-    }
-  }
+Rules:
+- ${isSetupTask ? `MANDATORY: Create ${fw.setupFiles}.` : 'Max 4-5 core files.'}
+- ${framework === 'python' ? 'Python files ONLY. No Node stuff.' : 'Tailwind CSS ONLY. No raw CSS.'}
+- NEVER import non-existent files.
+- UI/UX QUALITY: Create visually stunning, highly polished interfaces. Use smooth buttery micro-animations (e.g., hover:scale-105, transition-all duration-300).
+- ARCHITECTURE: Keep code strictly centralized and modular. Do NOT dump huge blobs of code. Break into reusable components.
+- UX: Include functional navigation and structured routing out of the box so the app feels like a complete product.
+- IMAGES: For any custom images (hero, products, etc.), use "https://ai-image.local/prompt?q=DETAILED_DESCRIPTION". 
+  Example: <img src="https://ai-image.local/prompt?q=ultra+realistic+modern+office+laptop+coffee" />
+Format:
+<thinking>...</thinking>
+<files><file path="path">content</file></files>`;
+};
+const buildFixPrompt = (plan: any, currentFiles: any[], framework = 'react') => {
+  return `Act as Lysis AI v7.0. Targeted Error Fix Mode.
+Context: The user has reported an error or requested a specific fix. 
+Current Files: ${JSON.stringify(currentFiles.map(f => f.path))}
 
-  if (objects.length > 0) {
-    return objects[0]; // Return the first complete object/array found
-  }
+Rules:
+1. ONLY modify the files necessary to fix the reported issue.
+2. DO NOT regenerate the entire project.
+3. Keep changes minimal and focused.
+4. If a new file is absolutely required, you may create it, but prefer modifying existing ones.
+5. maintain the same theme and framework: ${framework}.
 
-  throw new Error('No valid JSON structure found');
-}
-
-/* ─────────────── STRICT VALIDATION ─────────────── */
-function validateFiles(files: { path: string; content: string }[]) {
-  if (!Array.isArray(files)) throw new Error('Expected files array');
-
-  const paths = files.map(f => f.path);
-  const mustExist = ['index.html', 'package.json', 'src/App.tsx'];
-
-  for (const req of mustExist) {
-    if (!paths.includes(req)) {
-      throw new Error(`Critical missing file: ${req}. The build system requires this to boot.`);
-    }
-  }
-}
+Format:
+<thinking>...</thinking>
+<files><file path="path">content</file></files>`;
+};
 
 /* ───────────────── MAIN HANDLER ───────────────── */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { prompt, mode = 'execute', plan, messages = [] } = body;
+    const { prompt, mode = 'execute', plan, theme, currentTask, existingFiles, framework = 'react', selectedProvider, selectedModel } = body;
 
-    // Support both direct prompt and chat messages
-    const inputEmpty = !prompt?.trim() && messages.length === 0;
-    if (inputEmpty) {
-      return NextResponse.json({ error: 'Prompt or messages required' }, { status: 400 });
+    // Map frontend mode to groqCall mode
+    const groqMode: 'plan' | 'execute' | 'fix' = mode === 'plan' ? 'plan' : (mode === 'fix' ? 'fix' : 'execute');
+
+    if (!prompt?.trim()) {
+      return new Response(JSON.stringify({ error: 'Prompt required' }), { status: 400 });
     }
 
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: 'GROQ_API_KEY missing' }, { status: 500 });
+    // Collect existing file paths for context
+    const existingFilePaths: string[] = Array.isArray(existingFiles)
+      ? existingFiles.map((f: any) => typeof f === 'string' ? f : f.path).filter(Boolean)
+      : [];
+
+    // Choose system prompt
+    let currentSystemPrompt = '';
+    if (groqMode === 'plan') {
+      currentSystemPrompt = buildSystemPromptPlan(framework);
+    } else if (groqMode === 'fix') {
+      currentSystemPrompt = buildFixPrompt(plan, existingFiles, framework);
+    } else {
+      currentSystemPrompt = buildExecutePrompt(plan, theme, currentTask, existingFilePaths, framework);
     }
 
-    const systemPromptPlan = `
-You are Lysis AI v6.0 — a senior product designer + frontend architect.
-TASK: Create a design system and project plan.
+    const encoder = new TextEncoder();
 
-OUTPUT FORMAT (STRICT JSON):
-{
-  "theme": {
-    "name": "string",
-    "colors": { "primary": "#HEX", "background": "#HEX", "text": "#HEX" },
-    "font": "string"
-  },
-  "tasks": [
-    { "id": 1, "task": "Step Title", "description": "..." }
-  ]
-}
-`;
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (event: string, data: unknown) => {
+          controller.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          );
+        };
 
-    const systemPromptExecute = `
-You are Lysis AI v6.0 — a senior frontend engineer.
-Follow the DESIGN SYSTEM and PLAN provided.
+        try {
+          send('status', { message: '', stage: 'thinking' });
 
-PLAN & DESIGN:
-${JSON.stringify(plan, null, 2)}
+          const rawContent = await groqCall(
+            prompt,
+            selectedModel || "openai/gpt-oss-120b",
+            currentSystemPrompt,
+            groqMode,
+            1,
+            selectedProvider
+          );
 
-ABSOLUTE RULES:
-- Tailwind CSS ONLY.
-- Standard React (Vite/Lucide).
-- You MUST return a JSON object with a "files" key containing the file array.
-- MANDATORY FILES: index.html, package.json, src/App.tsx, src/main.tsx, src/styles/globals.css
+          // groqCall already parses JSON and returns the correct structure
+          // For 'plan' mode: { tasks: [...], theme: {...} }
+          // For 'execute' mode: files array
+          const result = rawContent;
 
-OUTPUT FORMAT (STRICT JSON):
-{
-  "files": [
-    { "path": "package.json", "content": "..." },
-    { "path": "index.html", "content": "..." },
-    { "path": "src/App.tsx", "content": "..." },
-    ...
-  ]
-}
-`;
-
-    const currentSystemPrompt = mode === 'plan' ? systemPromptPlan : systemPromptExecute;
-    const model = 'openai/gpt-oss-120b';
-
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
+          send('done', { result });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          send('error', { error: 'Generation failed', detail: message });
+        } finally {
+          controller.close();
+        }
       },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 8000,
-        stream: false,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: 'system', content: currentSystemPrompt },
-          ...messages,
-          ...(prompt ? [{ role: 'user', content: prompt }] : []),
-        ],
-      }),
     });
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      return NextResponse.json({ error: errorText }, { status: res.status });
-    }
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      },
+    });
 
-    const data = await res.json();
-    const rawContent = data.choices?.[0]?.message?.content ?? '{}';
-    const repaired = repairTruncatedJSON(rawContent);
-    const parsed = JSON.parse(repaired);
-
-    /* ───────────── RESPONSE ROUTING ───────────── */
-    if (mode === 'plan') {
-      return NextResponse.json({ tasks: parsed.tasks, theme: parsed.theme });
-    }
-
-    // Execution Mode
-    const files = parsed.files || (Array.isArray(parsed) ? parsed : []);
-    validateFiles(files);
-
-    return NextResponse.json({ files });
-
-  } catch (err: any) {
-    console.error('API Error:', err);
-    return NextResponse.json(
-      { error: 'Generation failed', detail: err.message },
-      { status: 500 }
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: 'Generation failed', detail: message }), { status: 500 });
   }
 }

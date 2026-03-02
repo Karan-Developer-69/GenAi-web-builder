@@ -1,12 +1,13 @@
 
 "use client";
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import CodeEditor from '../../components/CodeEditor';
 import Terminal from '../../components/Terminal';
 import Preview from '../../components/Preview';
 import { Tree } from "@/components/ui/file-tree";
+import { FilePlus, FolderPlus, X } from 'lucide-react';
 
 interface WorkspaceProps {
     viewMode: 'code' | 'preview';
@@ -17,6 +18,10 @@ interface WorkspaceProps {
     setEditorContent: (content: string) => void;
     editorContent: string;
     terminalLines: any[];
+    userLines: any[];
+    activeTab: 'system' | 'user';
+    setActiveTab: (tab: 'system' | 'user') => void;
+    shell: any;
     runStatus: any;
     clearTerminal: () => void;
     deviceMode: 'desktop' | 'tablet' | 'mobile';
@@ -27,6 +32,9 @@ interface WorkspaceProps {
     buildingProgress: number;
     treeElements: any[];
     renderFileTree: (elements: any[]) => React.ReactNode;
+    onSaveFile?: (path: string, content: string) => Promise<void>;
+    onCreateFile?: (path: string) => Promise<void>;
+    onCreateFolder?: (path: string) => Promise<void>;
     onRestartServer?: () => void;
     onClearContainer?: () => void;
     onInstallDeps?: () => void;
@@ -41,6 +49,10 @@ export default function Workspace({
     setEditorContent,
     editorContent,
     terminalLines,
+    userLines,
+    activeTab,
+    setActiveTab,
+    shell,
     runStatus,
     clearTerminal,
     deviceMode,
@@ -51,22 +63,105 @@ export default function Workspace({
     buildingProgress,
     treeElements,
     renderFileTree,
+    onSaveFile,
+    onCreateFile,
+    onCreateFolder,
     onRestartServer,
     onClearContainer,
     onInstallDeps,
 }: WorkspaceProps) {
+    // ── New File / Folder creation state ──
+    const [creatingType, setCreatingType] = useState<'file' | 'folder' | null>(null);
+    const [newItemName, setNewItemName] = useState('');
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (creatingType && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [creatingType]);
+
+    const handleCreateSubmit = async () => {
+        const name = newItemName.trim();
+        if (!name) {
+            setCreatingType(null);
+            setNewItemName('');
+            return;
+        }
+
+        if (creatingType === 'file' && onCreateFile) {
+            await onCreateFile(name);
+        } else if (creatingType === 'folder' && onCreateFolder) {
+            await onCreateFolder(name);
+        }
+
+        setCreatingType(null);
+        setNewItemName('');
+    };
+
+    const handleCreateCancel = () => {
+        setCreatingType(null);
+        setNewItemName('');
+    };
+
     return (
         <div className="flex-1 flex min-w-0 overflow-hidden bg-zinc-950">
             <div className={viewMode === 'code' ? 'flex-1 flex overflow-hidden' : 'hidden'}>
                 <div className="flex-1 flex overflow-hidden">
                     {/* File Tree Panel */}
                     <aside className="w-48 bg-zinc-950 border-r border-zinc-800 flex flex-col overflow-hidden">
-                        <div className="px-4 py-3 border-b border-zinc-900/50">
+                        <div className="px-3 py-2.5 border-b border-zinc-900/50 flex items-center justify-between">
                             <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Files</span>
+                            <div className="flex items-center gap-0.5">
+                                <button
+                                    onClick={() => setCreatingType('file')}
+                                    className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                                    title="New File"
+                                >
+                                    <FilePlus className="size-3.5" />
+                                </button>
+                                <button
+                                    onClick={() => setCreatingType('folder')}
+                                    className="p-1 rounded hover:bg-zinc-800 text-zinc-500 hover:text-zinc-300 transition-colors cursor-pointer"
+                                    title="New Folder"
+                                >
+                                    <FolderPlus className="size-3.5" />
+                                </button>
+                            </div>
                         </div>
+
+                        {/* Inline creation input */}
+                        {creatingType && (
+                            <div className="px-2 py-1.5 border-b border-zinc-800/50 bg-zinc-900/50">
+                                <div className="flex items-center gap-1">
+                                    <span className="text-[10px] text-zinc-500">
+                                        {creatingType === 'file' ? '📄' : '📁'}
+                                    </span>
+                                    <input
+                                        ref={inputRef}
+                                        type="text"
+                                        value={newItemName}
+                                        onChange={(e) => setNewItemName(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleCreateSubmit();
+                                            if (e.key === 'Escape') handleCreateCancel();
+                                        }}
+                                        onBlur={handleCreateSubmit}
+                                        placeholder={creatingType === 'file' ? 'filename.tsx' : 'folder-name'}
+                                        className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-1.5 py-0.5 text-[11px] text-zinc-200 placeholder-zinc-600 outline-none focus:border-indigo-500/50 font-mono"
+                                    />
+                                    <button
+                                        onClick={handleCreateCancel}
+                                        className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 cursor-pointer"
+                                    >
+                                        <X className="size-3" />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="flex-1 overflow-y-auto custom-scrollbar py-2">
                             <div className="px-2">
-                                {/* Using the standard file tree styling from design direction */}
                                 <div className="space-y-0.5">
                                     <Tree initialSelectedId={activeFile?.path}>
                                         {renderFileTree(treeElements)}
@@ -78,27 +173,7 @@ export default function Workspace({
 
                     {/* Code Editor Panel */}
                     <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-950">
-                        {/* Tab Bar */}
-                        <div className="flex bg-zinc-900 border-b border-zinc-800 overflow-x-auto no-scrollbar h-9">
-                            {files.map((file: any) => (
-                                <button
-                                    key={file.path}
-                                    className={cn(
-                                        "px-4 flex items-center gap-2 border-r border-zinc-800 text-[11px] font-mono transition-all min-w-[120px]",
-                                        activeFile?.path === file.path
-                                            ? "bg-zinc-950 border-t border-t-indigo-500 text-indigo-400 font-semibold"
-                                            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-                                    )}
-                                    onClick={async () => {
-                                        setActiveFile(file);
-                                        setEditorContent(await readContainerFile(file.path));
-                                    }}
-                                >
-                                    <span className="text-xs opacity-60">📄</span>
-                                    <span className="truncate">{file.name}</span>
-                                </button>
-                            ))}
-                        </div>
+                        
 
                         {/* Editor Area */}
                         <div className="flex-1 flex flex-col overflow-hidden relative">
@@ -108,7 +183,9 @@ export default function Workspace({
                                     fileName={activeFile.name}
                                     onChange={(val) => setEditorContent(val)}
                                     onSave={async () => {
-                                        // In a real app we'd trigger a save here
+                                        if (onSaveFile && activeFile) {
+                                            await onSaveFile(activeFile.path, editorContent);
+                                        }
                                     }}
                                 />
                             ) : (
@@ -125,6 +202,10 @@ export default function Workspace({
                         <div className="h-48 border-t border-zinc-800 bg-zinc-900/50">
                             <Terminal
                                 lines={terminalLines}
+                                userLines={userLines}
+                                activeTab={activeTab}
+                                onSetActiveTab={setActiveTab}
+                                shell={shell}
                                 status={runStatus}
                                 onClear={clearTerminal}
                             />

@@ -48,28 +48,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   );
 }
 
-import {
-  Reasoning,
-  ReasoningTrigger,
-  ReasoningContent
-} from '@/components/ai-elements/reasoning';
-import {
-  ChainOfThought,
-  ChainOfThoughtHeader,
-  ChainOfThoughtStep,
-  ChainOfThoughtContent
-} from '@/components/ai-elements/chain-of-thought';
-import {
-  Queue,
-  QueueItem,
-  QueueItemIndicator,
-  QueueItemContent,
-  QueueList,
-  QueueSection,
-  QueueSectionTrigger,
-  QueueSectionLabel,
-  QueueSectionContent
-} from '@/components/ai-elements/queue';
+
 
 function MessageContent({ content, isStreaming }: { content: string; isStreaming?: boolean }) {
   // Parsing logic for structured blocks
@@ -97,10 +76,13 @@ function MessageContent({ content, isStreaming }: { content: string; isStreaming
   // 1. Render Thinking Block
   if (thinkingContent || (isStreaming && content.includes('<thinking>'))) {
     parts.push(
-      <Reasoning key="thinking" isStreaming={isStreaming && !content.includes('</thinking>')}>
-        <ReasoningTrigger />
-        <ReasoningContent>{thinkingContent || ""}</ReasoningContent>
-      </Reasoning>
+      <div key="thinking" className="mb-4 p-3 bg-zinc-900/50 border border-zinc-800 rounded-xl text-xs text-zinc-400 italic">
+        <div className="flex items-center gap-2 mb-1 text-zinc-500 font-bold uppercase tracking-widest text-[10px]">
+          <span>Thinking</span>
+          {isStreaming && !content.includes('</thinking>') && <span className="animate-pulse">...</span>}
+        </div>
+        {thinkingContent || ""}
+      </div>
     );
   }
 
@@ -109,19 +91,21 @@ function MessageContent({ content, isStreaming }: { content: string; isStreaming
     const planSteps = planRaw.split('\n').filter(s => s.trim()).map(s => {
       const isComplete = s.startsWith('[x]') || s.startsWith('- [x]');
       const label = s.replace(/^(\[x\]|\[ \]|-\s*\[x\]|-\s*\[ \])\s*/, '');
-      return { label, status: isComplete ? 'complete' : 'active' };
+      return { label, status: isComplete ? 'completed' : 'pending' };
     });
 
     parts.push(
-      <ChainOfThought key="plan" className="mb-4">
-        <ChainOfThoughtHeader>Implementation Plan</ChainOfThoughtHeader>
-        <ChainOfThoughtContent>
+      <div key="plan" className="mb-4 p-3 bg-zinc-900/30 border border-zinc-800/50 rounded-xl">
+        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Project Plan</div>
+        <div className="space-y-1">
           {planSteps.map((step, i) => (
-            //@ts-ignore
-            <ChainOfThoughtStep key={i} label={step.label} status={step.status as any} />
+            <div key={i} className="flex items-center gap-2 text-xs">
+              <span className={cn("size-1.5 rounded-full", step.status === 'completed' ? "bg-emerald-500" : "bg-zinc-700")} />
+              <span className={cn(step.status === 'completed' ? "text-zinc-500 line-through" : "text-zinc-300")}>{step.label}</span>
+            </div>
           ))}
-        </ChainOfThoughtContent>
-      </ChainOfThought>
+        </div>
+      </div>
     );
   }
 
@@ -129,25 +113,17 @@ function MessageContent({ content, isStreaming }: { content: string; isStreaming
   if (filesRaw) {
     const fileList = filesRaw.split('\n').map(f => f.replace(/^([-* ]*)/, '').trim()).filter(f => f);
     parts.push(
-      <Queue key="files" className="mb-4 border border-zinc-800 rounded-lg overflow-hidden bg-zinc-900/50 p-1">
-        <QueueSection>
-          <QueueSectionTrigger>
-            <QueueSectionLabel count={fileList.length} label="Deployed Assets" />
-          </QueueSectionTrigger>
-          <QueueSectionContent>
-            <QueueList>
-              {fileList.map((file, i) => (
-                <QueueItem key={i}>
-                  <div className="flex items-center gap-2">
-                    <QueueItemIndicator completed />
-                    <QueueItemContent completed>{file}</QueueItemContent>
-                  </div>
-                </QueueItem>
-              ))}
-            </QueueList>
-          </QueueSectionContent>
-        </QueueSection>
-      </Queue>
+      <div key="files" className="mb-4 p-3 bg-zinc-900/30 border border-zinc-800/50 rounded-xl">
+        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mb-2">Files Created</div>
+        <div className="grid grid-cols-1 gap-1">
+          {fileList.map((file, i) => (
+            <div key={i} className="flex items-center gap-2 text-xs text-zinc-400">
+              <span className="text-[10px]">📄</span>
+              <span className="font-mono">{file}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     );
   }
 

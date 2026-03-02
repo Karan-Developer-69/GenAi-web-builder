@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import GlobalEffects from "./components/GlobalEffects";
 import ReduxProvider from "../components/ReduxProvider";
 
 
@@ -18,7 +17,6 @@ export default function RootLayout({
     <html lang="en">
       <body style={{ backgroundColor: 'var(--bg-base)', color: 'var(--text)' }}>
         <ReduxProvider>
-          <GlobalEffects />
           {children}
         </ReduxProvider>
       </body>

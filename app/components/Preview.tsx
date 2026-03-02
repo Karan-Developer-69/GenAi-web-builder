@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { Shimmer } from "@/components/ai-elements/shimmer";
 
 interface PreviewProps {
     url: string;
@@ -234,24 +234,17 @@ export default function Preview({ url, loading, onRestartServer, onClearContaine
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            background: 'var(--bg-primary)',
+                            background: '#121212',
                             zIndex: 10,
                             gap: 16,
                         }}
                     >
-                        <div
-                            style={{
-                                width: 42,
-                                height: 42,
-                                border: '3px solid var(--border-color)',
-                                borderTop: '3px solid var(--accent)',
-                                borderRadius: '50%',
-                                animation: 'spin 0.8s linear infinite',
-                            }}
-                        />
-                        <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                            Booting WebContainer…
-                        </span>
+                        <Shimmer duration={3} spread={3} as="h1" className="font-bold text-6xl">
+                            Preview 
+                        </Shimmer>
+                        <Shimmer duration={3} spread={3}    >
+                            Please wait for the preview to load
+                        </Shimmer>
                     </div>
                 )}
 

@@ -3,3 +3,9 @@ export interface ITerminal {
     clear(): void;
     resize(cols: number, rows: number): void;
 }
+
+export interface TerminalLine {
+    id: string;
+    content: string;
+    type: 'log' | 'command' | 'success' | 'error' | 'process';
+}
