@@ -1,8 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
+import type { ShellType } from '../../components/Terminal';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
+import type { TerminalLine } from '../../../types/terminal';
+import type { Theme, Task } from '@/utils/validators';
 import { RootState } from '../../../lib/store/store';
 import {
     setStatus,
@@ -71,6 +74,23 @@ export interface FileEntry {
     isDirectory?: boolean;
 }
 
+interface FileResult {
+    path: string;
+    content: string;
+}
+
+interface PlanResult {
+    tasks: Task[];
+    theme: Theme;
+}
+
+interface TreeNode {
+    name: string;
+    id: string;
+    isDirectory: boolean;
+    children?: TreeNode[];
+}
+
 
 export default function EditorView() {
     const searchParams = useSearchParams();
@@ -109,14 +129,14 @@ export default function EditorView() {
     const setChatInputFunc = (input: string) => dispatch(setInput(input));
     const setEditorContentFunc = (content: string) => dispatch(setEditorContent(content));
     const setViewModeFunc = (mode: 'code' | 'preview') => dispatch(setViewMode(mode));
-    const setErrorDataFunc = (data: any) => dispatch(setErrorData(data));
+    const setErrorDataFunc = (data: { message: string; type: string } | null) => dispatch(setErrorData(data));
     const setActiveTabFunc = (tab: 'system' | 'user') => dispatch(setActiveTab(tab));
 
     const activeTab = useSelector((state: RootState) => state.terminal.activeTab);
-    const [shell, setShell] = useState<any>(null);
+    const [shell, setShell] = useState<ShellType | null>(null);
 
     // ── Log Throttling ──
-    const logBufferRef = useRef<{ content: string; type: any }[]>([]);
+    const logBufferRef = useRef<TerminalLine[]>([]);
     const flushLogs = useCallback(() => {
         if (logBufferRef.current.length === 0) return;
 
@@ -134,8 +154,13 @@ export default function EditorView() {
         return () => clearInterval(interval);
     }, [flushLogs]);
 
-    const bufferedAppendLine = useCallback((log: { content: string; type: any }) => {
-        logBufferRef.current.push(log);
+    const bufferedAppendLine = useCallback((log: Omit<TerminalLine, 'id'> & Partial<Pick<TerminalLine, 'id'>>) => {
+        const entry: TerminalLine = {
+            id: log.id ?? `${Date.now()}-${Math.random()}`,
+            content: log.content,
+            type: log.type,
+        };
+        logBufferRef.current.push(entry);
     }, []);
 
     const runDevServer = useCallback(async (cancelled: boolean) => {
@@ -174,8 +199,8 @@ export default function EditorView() {
     }, [dispatch]);
 
     const buildTreeData = (filesList: FileEntry[]) => {
-        const root: any[] = [];
-        const map: { [key: string]: any } = {};
+        const root: TreeNode[] = [];
+        const map: { [key: string]: TreeNode } = {};
 
         const sortedFiles = [...filesList].sort((a, b) => a.path.length - b.path.length);
 
@@ -188,10 +213,10 @@ export default function EditorView() {
                 const pathPrefix = currentPath ? currentPath + '/' : '';
                 currentPath = pathPrefix + part;
 
-                const isDir = !isLast || file.isDirectory;
+                const isDir = !isLast || Boolean(file.isDirectory);
 
                 if (!map[currentPath]) {
-                    const item: any = {
+                    const item: TreeNode = {
                         name: part,
                         id: currentPath,
                         isDirectory: isDir,
@@ -204,14 +229,14 @@ export default function EditorView() {
                     } else {
                         const parentPath = parts.slice(0, index).join('/');
                         if (map[parentPath]) {
-                            map[parentPath].children.push(item);
+                            map[parentPath].children!.push(item);
                         }
                     }
                 }
             });
         });
 
-        const sortItems = (items: any[]) => {
+        const sortItems = (items: TreeNode[]) => {
             return items
                 .sort((a, b) => {
                     if (a.isDirectory && !b.isDirectory) return -1;
@@ -229,7 +254,7 @@ export default function EditorView() {
 
     const treeElements = useMemo(() => buildTreeData(files), [files]);
 
-    const renderFileTree = (elements: any[]) => {
+    const renderFileTree = (elements: TreeNode[]) => {
         return elements.map(el => {
             if (el.isDirectory) {
                 return (
@@ -262,7 +287,7 @@ export default function EditorView() {
     const fetchGenerateSSE = useCallback(async (
         body: Record<string, unknown>,
         onStatus: (msg: string) => void,
-    ): Promise<any> => {
+    ): Promise<unknown> => {
         const res = await fetch('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -288,12 +313,30 @@ export default function EditorView() {
 
                 // Handle both 'data: {...}' and 'event: xxx' lines
                 if (trimmed.startsWith('data: ')) {
-                    let parsed: any;
+                    let parsed: unknown;
                     try { parsed = JSON.parse(trimmed.slice(6)); } catch { continue; }
 
-                    if (parsed.message) onStatus(parsed.message);
-                    if (parsed.error) throw new Error(parsed.detail ?? parsed.error);
-                    if ('result' in parsed) return parsed.result;
+                    const p = parsed as Record<string, unknown>;
+                    if (typeof p.message === 'string') onStatus(p.message);
+                    // safely extract detail / error as string
+                    const detailVal = p.detail;
+                    let errMsg: string | undefined;
+                    if (typeof detailVal === 'string') {
+                        errMsg = detailVal;
+                    } else if (detailVal && typeof detailVal === 'object') {
+                        errMsg = JSON.stringify(detailVal);
+                    }
+                    const errorVal = p.error;
+                    let errValStr: string | undefined;
+                    if (typeof errorVal === 'string') {
+                        errValStr = errorVal;
+                    } else if (errorVal && typeof errorVal === 'object') {
+                        errValStr = JSON.stringify(errorVal);
+                    }
+                    if (errMsg || errValStr) {
+                        throw new Error(errMsg ?? errValStr ?? 'Unknown error');
+                    }
+                    if ('result' in p) return p.result;
                 }
             }
         }
@@ -325,7 +368,7 @@ export default function EditorView() {
             }
         };
 
-        const processImagesInFiles = async (taskFiles: any[]) => {
+        const processImagesInFiles = async (taskFiles: FileResult[]) => {
             for (const file of taskFiles) {
                 if (typeof file.content !== 'string') continue;
 
@@ -502,7 +545,7 @@ export default function EditorView() {
                 },
             );
 
-            const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult : {}) as { tasks: any[]; theme: any };
+const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult : {}) as PlanResult;
 
             if (!tasks || tasks.length === 0) throw new Error('No tasks generated');
 
@@ -511,11 +554,11 @@ export default function EditorView() {
             dispatch(setThinkingText(''));
             dispatch(addMessage({ role: 'assistant', content: `I can build this for you! Let me set everything up.` }));
 
-            const initialPlanStr = `<plan>\n${tasks.map((t: any) => `- [ ] ${t.task}`).join('\n')}\n</plan>`;
+            const initialPlanStr = `<plan>\n${tasks.map((t: Task) => `- [ ] ${t.task}`).join('\n')}\n</plan>`;
             dispatch(addMessage({ role: 'assistant', content: initialPlanStr }));
             const planMessageIndex = chatMessages.length + 2;
 
-            let allGeneratedFiles: any[] = [];
+            let allGeneratedFiles: FileResult[] = [];
             let completedTaskCount = 0;
 
 
@@ -523,7 +566,7 @@ export default function EditorView() {
             dispatch(setPhase('executing'));
 
             // Helper: execute a single task — AI call → batch write → update UI
-            const executeTask = async (currentTask: any, taskIndex: number) => {
+            const executeTask = async (currentTask: Task, taskIndex: number) => {
                 // Pass existing file paths so AI knows what already exists
                 const existingFilePaths = allGeneratedFiles.map(f => f.path);
 
@@ -532,9 +575,9 @@ export default function EditorView() {
                     () => { },
                 );
 
-                const taskFiles: any[] = Array.isArray(taskResult)
-                    ? taskResult
-                    : (taskResult?.files ?? []);
+                const taskFiles: FileResult[] = Array.isArray(taskResult)
+                    ? taskResult as FileResult[]
+                    : ((taskResult as Record<string, unknown>).files as FileResult[] | undefined) ?? [];
 
                 // ── Fallback logic: Ensure mandatory dependency files exist in the setup task ──
                 const isSetupTask = currentTask.task === "Initial Project Setup";
@@ -586,10 +629,9 @@ export default function EditorView() {
                 dispatch(addMessage({ role: 'assistant', content: `✦ I have implemented: **${currentTask.task}**\n${stepMsg}` }));
 
                 // Update plan checkmarks
-                const updatedPlanStr = `<plan>\n${tasks.map((t: any, idx: number) =>
+                const updatedPlanStr = `<plan>\n${tasks.map((t: Task, idx: number) =>
                     `${idx <= taskIndex ? '- [x]' : '- [ ]'} ${t.task}`
                 ).join('\n')}\n</plan>`;
-                // @ts-ignore
                 dispatch(updateMessage({ index: planMessageIndex, content: updatedPlanStr }));
             };
 
@@ -754,10 +796,10 @@ export default function EditorView() {
         try {
             await processGeneration(userMsg, files);
             dispatch(setPhase('done'));
-        } catch (err: any) {
+        } catch (err: unknown) {
             dispatch(setPhase('idle'));
             dispatch(setErrorData({
-                message: err?.message || "Communication Disruption. Verify uplink.",
+                message: err instanceof Error ? err.message : String(err) || "Communication Disruption. Verify uplink.",
                 type: 'runtime'
             }));
         } finally {
@@ -961,7 +1003,7 @@ export default function EditorView() {
                     userLines={[]}
                     activeTab={activeTab}
                     setActiveTab={setActiveTabFunc}
-                    shell={shell}
+                    shell={shell ?? undefined}
                     runStatus={runStatus}
                     clearTerminal={() => dispatch(clearLines())}
                     deviceMode={deviceMode as 'desktop' | 'tablet' | 'mobile'}

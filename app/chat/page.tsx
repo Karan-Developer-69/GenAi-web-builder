@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import Link from 'next/link';
 
 interface Message {
   id: string;
@@ -67,7 +68,7 @@ function MessageContent({ content, isStreaming }: { content: string; isStreaming
   const filesRaw = filesMatch ? filesMatch[1].trim() : null;
 
   // Remove thinking, plan and files blocks from the main content
-  let mainContent = content
+  const mainContent = content
     .replace(/<thinking>[\s\S]*?(?:<\/thinking>|$)/g, '')
     .replace(/<plan>[\s\S]*?(?:<\/plan>|$)/g, '')
     .replace(/<files>[\s\S]*?(?:<\/files>|$)/g, '')
@@ -271,17 +272,18 @@ export default function ChatPage() {
   const formatTime = (d: Date) =>
     d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  return <div className="flex h-screen overflow-hidden bg-bg-base font-sans">
+
+return <div className="flex h-screen overflow-hidden bg-bg-base font-sans">
     {/* ── SIDEBAR ── */}
     <aside className={cn(
       "flex flex-col w-[260px] min-w-[260px] bg-bg-surface border-r border-line transition-all duration-300 overflow-hidden",
       !sidebarOpen && "w-0 min-w-0 opacity-0"
     )}>
       <div className="flex items-center justify-between p-4 pb-3 border-b border-line">
-        <a href="/" className="flex items-center gap-2 no-underline group">
+        <Link href="/" className="flex items-center gap-2 no-underline group">
           <span className="bg-gradient-to-br from-purple-400 to-blue-400 bg-clip-text text-transparent text-xl font-bold group-hover:scale-110 transition-transform">⚡</span>
           <span className="font-bold text-[15px] text-text tracking-tight group-hover:text-blue-primary transition-colors">Coder AI</span>
-        </a>
+        </Link>
         <button className="bg-transparent border-none text-text-3 cursor-pointer text-sm p-1 rounded transition-colors hover:text-text hover:bg-line/50" onClick={() => setSidebarOpen(false)} title="Close sidebar">
           ✕
         </button>
@@ -307,9 +309,9 @@ export default function ChatPage() {
       </div>
 
       <div className="p-3 border-t border-line">
-        <a href="/editor" className="flex items-center gap-2 p-2 px-3 rounded-lg bg-line/30 text-text-2 no-underline text-[13px] font-medium transition-all hover:text-text hover:bg-line/50 hover:shadow-sm">
+        <Link href="/editor" className="flex items-center gap-2 p-2 px-3 rounded-lg bg-line/30 text-text-2 no-underline text-[13px] font-medium transition-all hover:text-text hover:bg-line/50 hover:shadow-sm">
           <span>🖥️</span> Open Editor
-        </a>
+        </Link>
       </div>
     </aside>
 
@@ -330,9 +332,9 @@ export default function ChatPage() {
           </span>
           <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest opacity-60">Powered by Groq</span>
         </div>
-        <a href="/editor" className="text-[11px] font-bold text-text-2 no-underline px-3.5 py-1.5 border border-line rounded-lg bg-line/30 transition-all hover:text-text hover:border-text-3 hover:bg-line/50 hover:shadow-sm">
+        <Link href="/editor" className="text-[11px] font-bold text-text-2 no-underline px-3.5 py-1.5 border border-line rounded-lg bg-line/30 transition-all hover:text-text hover:border-text-3 hover:bg-line/50 hover:shadow-sm">
           🖥️ Editor
-        </a>
+        </Link>
       </header>
 
       {/* Messages */}

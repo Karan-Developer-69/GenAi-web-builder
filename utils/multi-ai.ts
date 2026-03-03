@@ -99,7 +99,8 @@ class MultiAI {
     }
 
     async chat(messages: ChatMessage[], options: { stream?: boolean; provider?: string; model?: string } = {}): Promise<Response> {
-        let rotation: any[] = [];
+        type ProviderEntry = typeof PROVIDERS[number] & { apiKey?: string };
+        let rotation: ProviderEntry[] = [];
 
         if (options.provider) {
             // Manual selection

@@ -12,7 +12,7 @@ const FRAMEWORKS = [
   { id: 'python', label: 'Python', icon: '🐍', desc: 'FastAPI + HTML' },
 ];
 
-export default function page() {
+export default function Page() {
   const router = useRouter();
   const [prompt, setPrompt] = useState('');
   const [hasError, setHasError] = useState(false);
@@ -126,11 +126,11 @@ export default function page() {
             <textarea
               className="w-full h-4/6 top-2 absolute bg-transparent px-5 py-2 text-zinc-100 placeholder-zinc-600 outline-none resize-none text-md "
               value={prompt}
-              onChange={(e) => {
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 setPrompt(e.target.value);
                 if (hasError) setHasError(false);
               }}
-              onKeyDown={(e) => {
+              onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleGenerate();

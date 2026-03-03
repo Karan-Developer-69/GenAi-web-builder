@@ -28,6 +28,8 @@ const FRAMEWORK_CONFIGS: Record<string, { label: string; planRules: string; setu
   },
 };
 
+import type { Theme, Task } from '@/utils/validators';
+
 const buildSystemPromptPlan = (framework = 'react') => {
   const fw = FRAMEWORK_CONFIGS[framework] ?? FRAMEWORK_CONFIGS.react;
   return `Act as Lysis AI v7.0. Create a design system & plan for: ${fw.label}.
@@ -40,7 +42,14 @@ Format (XML tags):
 <tasks><task id="1" description="..">Initial Project Setup</task>...</tasks>`;
 };
 
-const buildExecutePrompt = (plan: any, theme: any, currentTask: any, existingFilePaths: string[] = [], framework = 'react') => {
+
+const buildExecutePrompt = (
+  plan: { tasks: Task[]; theme: Theme },
+  theme: Theme,
+  currentTask: Task,
+  existingFilePaths: string[] = [],
+  framework = 'react'
+) => {
   const fw = FRAMEWORK_CONFIGS[framework] ?? FRAMEWORK_CONFIGS.react;
   const isSetupTask = currentTask.task === "Initial Project Setup";
 
@@ -62,10 +71,24 @@ Format:
 <thinking>...</thinking>
 <files><file path="path">content</file></files>`;
 };
-const buildFixPrompt = (plan: any, currentFiles: any[], framework = 'react') => {
+const buildFixPrompt = (
+  currentFiles: unknown[],
+  framework = 'react'
+) => {
+  const filePaths = currentFiles
+    .map((f) => {
+      if (typeof f === 'string') return f;
+      if (typeof f === 'object' && f) {
+        const obj = f as { path?: unknown };
+        if (typeof obj.path === 'string') return obj.path;
+      }
+      return '';
+    })
+    .filter(Boolean);
+
   return `Act as Lysis AI v7.0. Targeted Error Fix Mode.
 Context: The user has reported an error or requested a specific fix. 
-Current Files: ${JSON.stringify(currentFiles.map(f => f.path))}
+Current Files: ${JSON.stringify(filePaths)}
 
 Rules:
 1. ONLY modify the files necessary to fix the reported issue.
@@ -94,7 +117,16 @@ export async function POST(req: NextRequest) {
 
     // Collect existing file paths for context
     const existingFilePaths: string[] = Array.isArray(existingFiles)
-      ? existingFiles.map((f: any) => typeof f === 'string' ? f : f.path).filter(Boolean)
+      ? existingFiles.map((f: unknown) => {
+          if (typeof f === 'string') return f;
+          if (typeof f === 'object' && f) {
+            const obj = f as { path?: unknown };
+            if (typeof obj.path === 'string') {
+              return obj.path;
+            }
+          }
+          return '';
+        }).filter(Boolean)
       : [];
 
     // Choose system prompt
@@ -102,7 +134,7 @@ export async function POST(req: NextRequest) {
     if (groqMode === 'plan') {
       currentSystemPrompt = buildSystemPromptPlan(framework);
     } else if (groqMode === 'fix') {
-      currentSystemPrompt = buildFixPrompt(plan, existingFiles, framework);
+      currentSystemPrompt = buildFixPrompt(existingFiles, framework);
     } else {
       currentSystemPrompt = buildExecutePrompt(plan, theme, currentTask, existingFilePaths, framework);
     }

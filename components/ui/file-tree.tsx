@@ -126,8 +126,8 @@ const Tree = forwardRef<HTMLDivElement, TreeViewProps>(
     )
 
     useEffect(() => {
+      // existing state already initializes selectedId, so only expand when an initialSelectedId is provided
       if (initialSelectedId) {
-        setSelectedId(initialSelectedId)
         expandSpecificTargetedElements(elements, initialSelectedId)
       }
     }, [initialSelectedId, elements, expandSpecificTargetedElements])

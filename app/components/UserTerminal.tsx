@@ -3,13 +3,10 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 
+import type { ShellType } from './Terminal';
+
 interface UserTerminalProps {
-    shell?: {
-        process: any;
-        write: (data: string) => void;
-        resize: (cols: number, rows: number) => void;
-        output: ReadableStream;
-    };
+    shell?: ShellType;
     visible?: boolean;
 }
 
@@ -101,7 +98,13 @@ export default function UserTerminal({ shell, visible }: UserTerminalProps) {
                 while (!isStopped) {
                     const { done, value } = await reader.read();
                     if (done || isStopped) break;
-                    terminal.write(value);
+                    if (typeof value === 'string') {
+                        terminal.write(value);
+                    } else if (value instanceof Uint8Array) {
+                        terminal.write(new TextDecoder().decode(value));
+                    } else if (value != null) {
+                        terminal.write(String(value));
+                    }
                 }
             } catch (err) {
                 console.error('Terminal read error:', err);

@@ -89,7 +89,7 @@ export async function startDevServer(
     let command = 'npm';
     let args = ['run', 'dev'];
 
-    let pkg: any = {};
+    let pkg: Record<string, unknown> = {};
     try {
         const pkgContent = await wc.fs.readFile('package.json', 'utf-8').catch(() => '{}');
         pkg = JSON.parse(pkgContent);
@@ -97,12 +97,13 @@ export async function startDevServer(
         console.warn('[WC] Could not parse package.json', e);
     }
 
-    const scripts = pkg.scripts || {};
-    if (scripts.dev) {
+    const scriptsObj = pkg.scripts;
+    const scripts = typeof scriptsObj === 'object' && scriptsObj !== null ? scriptsObj as Record<string, unknown> : {};
+    if (typeof scripts.dev === 'string') {
         args = ['run', 'dev'];
-    } else if (scripts.start) {
+    } else if (typeof scripts.start === 'string') {
         args = ['start']; // equivalent to run start, but standard npm
-    } else if (scripts.preview) {
+    } else if (typeof scripts.preview === 'string') {
         args = ['run', 'preview'];
     } else {
         onTerminalLog?.(`\n⚠ Warning: No familiar dev script (dev, start, preview) found in package.json. Defaulting to npm start.\n`);

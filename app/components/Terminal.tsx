@@ -3,12 +3,19 @@ import { TerminalLine } from '@/types/terminal';
 import { cn } from '@/lib/utils';
 import UserTerminal from './UserTerminal';
 
+export interface ShellType {
+    process?: unknown;
+    write: (data: string) => void;
+    resize: (cols: number, rows: number) => void;
+    output: ReadableStream<unknown>; // can be string or bytes depending on implementation
+}
+
 interface TerminalProps {
     lines: TerminalLine[];
     userLines?: TerminalLine[];
     activeTab?: 'system' | 'user';
     status: 'idle' | 'installing' | 'running' | 'error';
-    shell?: any;
+    shell?: ShellType;
     onClear?: () => void;
     onSetActiveTab?: (tab: 'system' | 'user') => void;
 }

@@ -2,27 +2,36 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from 'react';
+import type { FileEntry } from './EditorView';
+import type { TerminalLine } from '@/types/terminal';
 import { cn } from '@/lib/utils';
 import CodeEditor from '../../components/CodeEditor';
-import Terminal from '../../components/Terminal';
+import Terminal, { ShellType } from '../../components/Terminal';
 import Preview from '../../components/Preview';
 import { Tree } from "@/components/ui/file-tree";
 import { FilePlus, FolderPlus, X } from 'lucide-react';
 
+interface TreeNode {
+    name: string;
+    id: string;
+    isDirectory: boolean;
+    children?: TreeNode[];
+}
+
 interface WorkspaceProps {
     viewMode: 'code' | 'preview';
-    files: any[];
-    activeFile: any;
-    setActiveFile: (file: any) => void;
+    files: FileEntry[];
+    activeFile: FileEntry | null;
+    setActiveFile: (file: FileEntry) => void;
     readContainerFile: (path: string) => Promise<string>;
     setEditorContent: (content: string) => void;
     editorContent: string;
-    terminalLines: any[];
-    userLines: any[];
+    terminalLines: TerminalLine[];
+    userLines: TerminalLine[];
     activeTab: 'system' | 'user';
     setActiveTab: (tab: 'system' | 'user') => void;
-    shell: any;
-    runStatus: any;
+    shell?: ShellType;
+    runStatus: 'idle' | 'installing' | 'running' | 'error';
     clearTerminal: () => void;
     deviceMode: 'desktop' | 'tablet' | 'mobile';
     previewUrl: string;
@@ -30,8 +39,8 @@ interface WorkspaceProps {
     isBuilding: boolean;
     buildingStatus: string;
     buildingProgress: number;
-    treeElements: any[];
-    renderFileTree: (elements: any[]) => React.ReactNode;
+    treeElements: TreeNode[];
+    renderFileTree: (elements: TreeNode[]) => React.ReactNode;
     onSaveFile?: (path: string, content: string) => Promise<void>;
     onCreateFile?: (path: string) => Promise<void>;
     onCreateFolder?: (path: string) => Promise<void>;

@@ -45,8 +45,14 @@ Technology: React, Next.js, Tailwind CSS, Lucide icons.
             },
         });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
+        // Always log full error server-side for debugging
         console.error('Chat API Error:', err);
-        return new Response(JSON.stringify({ error: 'Internal server error', detail: err.message }), { status: 500 });
+        const genericMsg = 'Internal server error';
+        // Expose detailed message only in non-production for diagnostics
+        const detail = process.env.NODE_ENV !== 'production'
+            ? (err instanceof Error ? err.message : String(err))
+            : genericMsg;
+        return new Response(JSON.stringify({ error: genericMsg, detail }), { status: 500 });
     }
 }

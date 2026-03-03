@@ -52,20 +52,43 @@ export function parseFilesFromTags(content: string): { path: string; content: st
 /**
  * Extracts theme and tasks from content formatted with tags.
  */
-export function parsePlanFromTags(content: string): { theme: any; tasks: any[] } {
+
+export interface Theme {
+  name?: string;
+  colors: {
+    primary: string;
+    background: string;
+    text: string;
+  };
+  font?: string;
+}
+
+export interface Task {
+  id: number;
+  task: string;
+  description: string;
+}
+
+export function parsePlanFromTags(content: string): { theme: Theme; tasks: Task[] } {
   const themeBlock = parseTag(content, 'theme');
   const tasksBlock = parseTag(content, 'tasks');
 
-  const theme: any = { colors: {} };
+  const theme: Theme = {
+    colors: {
+      primary: '#007bff',
+      background: '#121212',
+      text: '#ffffff',
+    },
+  };
   if (themeBlock) {
-    theme.name = parseTag(themeBlock, 'name') || "Custom Theme";
-    theme.colors.primary = parseTag(themeBlock, 'primary') || "#007bff";
-    theme.colors.background = parseTag(themeBlock, 'background') || "#121212";
-    theme.colors.text = parseTag(themeBlock, 'text') || "#ffffff";
-    theme.font = parseTag(themeBlock, 'font') || "Inter, sans-serif";
+    theme.name = parseTag(themeBlock, 'name') || 'Custom Theme';
+    theme.colors.primary = parseTag(themeBlock, 'primary') || '#007bff';
+    theme.colors.background = parseTag(themeBlock, 'background') || '#121212';
+    theme.colors.text = parseTag(themeBlock, 'text') || '#ffffff';
+    theme.font = parseTag(themeBlock, 'font') || 'Inter, sans-serif';
   }
 
-  const tasks: any[] = [];
+  const tasks: Task[] = [];
   if (tasksBlock) {
     // Match <task id="1" description="...">Title</task>
     const taskRegex = /<task\s+id="([^"]+)"(?:\s+description="([^"]*)")?\s*>([\s\S]*?)(?:<\/task>|$)/g;
@@ -169,16 +192,21 @@ export function cleanFileContent(content: string): string {
 }
 
 /* ──────────── NORMALIZE FILE ENTRIES ──────────── */
-export function normalizeFiles(files: any[]): { path: string; content: string }[] {
+export function normalizeFiles(files: unknown[]): { path: string; content: string }[] {
   if (!Array.isArray(files)) return [];
   const result: { path: string; content: string }[] = [];
   for (const entry of files) {
-    if (entry && typeof entry === 'object' && entry.path && typeof entry.content === 'string') {
-      result.push({
-        path: entry.path,
-        content: cleanFileContent(entry.content),
-      });
-    } else if (typeof entry === 'string') {
+    if (entry && typeof entry === 'object') {
+      const obj = entry as { path?: unknown; content?: unknown };
+      if (typeof obj.path === 'string' && typeof obj.content === 'string') {
+        result.push({
+          path: obj.path,
+          content: cleanFileContent(obj.content),
+        });
+        continue;
+      }
+    }
+    if (typeof entry === 'string') {
       try {
         const parsed = JSON.parse(entry);
         if (parsed.path && typeof parsed.content === 'string') {
