@@ -37,7 +37,6 @@ const STATUS_CONFIG = {
 
 export default function Terminal({
     lines,
-    userLines = [],
     activeTab = 'system',
     status,
     shell,

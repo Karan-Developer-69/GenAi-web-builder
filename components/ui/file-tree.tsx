@@ -217,14 +217,13 @@ const Folder = forwardRef<
       children,
       ...props
     },
-    ref
+    _ref
   ) => {
     const {
       direction,
       handleExpand,
       expandedItems,
       indicator,
-      setExpandedItems,
       openIcon,
       closeIcon,
     } = useTree()

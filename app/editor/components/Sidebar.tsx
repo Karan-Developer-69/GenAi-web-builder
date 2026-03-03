@@ -3,14 +3,13 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { FiSend } from 'react-icons/fi';
-import { CheckCircle, CircleDot, Rocket, FolderOpen, Brain, Loader2 } from 'lucide-react';
+import { CheckCircle, Rocket, FolderOpen, Brain, Loader2 } from 'lucide-react';
 
-import { ChatPhase, setSelectedAI } from '@/lib/store/slices/chatSlice';
+import { ChatPhase } from '@/lib/store/slices/chatSlice';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '../../../lib/store/store';
 
-import { AI_MODELS } from '../../../utils/constants';
 import { ModelSelector } from '@/components/ModelSelector';
 
 interface SidebarProps {
@@ -261,9 +260,6 @@ export default function Sidebar({
     thinkingText,
 }: SidebarProps) {
     const bottomRef = useRef<HTMLDivElement>(null);
-    const dispatch = useDispatch();
-    const selectedProvider = useSelector((state: RootState) => state.chat.selectedProvider);
-    const selectedModel = useSelector((state: RootState) => state.chat.selectedModel);
 
 
     useEffect(() => {

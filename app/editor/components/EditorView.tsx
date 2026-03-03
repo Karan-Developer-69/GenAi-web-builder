@@ -14,9 +14,6 @@ import {
     setFiles,
     setActiveFile,
     setEditorContent,
-    setIsBuilding,
-    setBuildingProgress,
-    setBuildingStatus,
     setErrorData,
     setIsReplicating,
     setViewMode,
@@ -34,7 +31,6 @@ import {
 } from '../../../lib/store/slices/chatSlice';
 import {
     appendLine,
-    appendUserLine,
     updateLastLine,
     clearLines,
     setActiveTab,
@@ -55,7 +51,6 @@ import {
     createContainerDirectory,
     getFramework,
     stopDevServer,
-    type ContainerFileEntry,
 } from '../../../webcontainer/container';
 import { pythonRunner } from '../../../utils/python-runner';
 import { File, Folder } from '../../../components/ui/file-tree';
@@ -94,14 +89,12 @@ interface TreeNode {
 
 export default function EditorView() {
     const searchParams = useSearchParams();
-    const router = useRouter();
     const popupRef = useRef<Window | null>(null);
     const dispatch = useDispatch();
 
     // Selectors
     const status = useSelector((state: RootState) => state.editor.status);
     const previewUrl = useSelector((state: RootState) => state.editor.previewUrl);
-    const booted = useSelector((state: RootState) => state.editor.booted);
     const files = useSelector((state: RootState) => state.editor.files);
     const activeFile = useSelector((state: RootState) => state.editor.activeFile);
     const editorContent = useSelector((state: RootState) => state.editor.editorContent);
@@ -341,7 +334,7 @@ export default function EditorView() {
             }
         }
         return null;
-    }, []);
+    }, [selectedModel, selectedProvider]);
 
     const framework = searchParams.get('framework') || 'react';
 
@@ -672,7 +665,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
             dispatch(appendLine({ content: `✗ ${err}`, type: 'error' }));
             throw err;
         }
-    }, [dispatch, chatMessages.length, files, fetchGenerateSSE, bufferedAppendLine]);
+    }, [dispatch, chatMessages.length, files, fetchGenerateSSE, bufferedAppendLine, activeFile, framework, runDevServer]);
 
     const isBooting = useRef(false);
 
@@ -839,7 +832,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
                 dispatch(appendLine({ content: `✗ Failed to restart server: ${err}`, type: 'error' }));
             }
         }
-    }, [status, dispatch, chatMessages, files, processGeneration]);
+    }, [status, dispatch, chatMessages, files, processGeneration, runDevServer]);
 
     const handleClearContainer = useCallback(async () => {
         dispatch(setStatus('booting'));

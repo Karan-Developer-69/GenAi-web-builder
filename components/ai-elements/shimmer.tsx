@@ -39,10 +39,8 @@ const ShimmerComponent = ({
   duration = 2,
   spread = 2,
 }: TextShimmerProps) => {
-  const MotionComponent = useMemo(
-    () => getMotionComponent(Component as keyof JSX.IntrinsicElements),
-    [Component]
-  );
+  // getMotionComponent uses module-level cache, so we can call it directly
+  const MotionComponent = getMotionComponent(Component as keyof JSX.IntrinsicElements);
 
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,

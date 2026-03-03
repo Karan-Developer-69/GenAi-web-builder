@@ -51,10 +51,7 @@ interface WorkspaceProps {
 
 export default function Workspace({
     viewMode,
-    files,
     activeFile,
-    setActiveFile,
-    readContainerFile,
     setEditorContent,
     editorContent,
     terminalLines,

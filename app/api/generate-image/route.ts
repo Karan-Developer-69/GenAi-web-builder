@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
         const data = await response.json();
         return NextResponse.json(data);
-    } catch (err) {
+    } catch (_err) {
         return NextResponse.json({ error: 'Failed to initiate generation' }, { status: 500 });
     }
 }
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         });
         const data = await response.json();
         return NextResponse.json(data);
-    } catch (err) {
+    } catch (_err) {
         return NextResponse.json({ error: 'Failed to fetch status' }, { status: 500 });
     }
 }

@@ -77,7 +77,7 @@ export default function UserTerminal({ shell, visible }: UserTerminalProps) {
             window.removeEventListener('resize', resizeHandler);
             terminal.dispose();
         };
-    }, []);
+    }, [shell]);
 
     // Handle incoming shell data
     useEffect(() => {
