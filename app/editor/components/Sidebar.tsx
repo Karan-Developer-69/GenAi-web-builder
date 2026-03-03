@@ -7,8 +7,6 @@ import { CheckCircle, Rocket, FolderOpen, Brain, Loader2 } from 'lucide-react';
 
 import { ChatPhase } from '@/lib/store/slices/chatSlice';
 import { Shimmer } from '@/components/ai-elements/shimmer';
-import { useDispatch, useSelector } from 'react-redux';
-import { RootState } from '../../../lib/store/store';
 
 import { ModelSelector } from '@/components/ModelSelector';
 

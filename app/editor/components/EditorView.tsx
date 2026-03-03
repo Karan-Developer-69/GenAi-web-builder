@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useMemo, useState } from 'react';
 import type { ShellType } from '../../components/Terminal';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
 import type { TerminalLine } from '../../../types/terminal';
 import type { Theme, Task } from '@/utils/validators';
@@ -189,7 +189,7 @@ export default function EditorView() {
                 }
             }
         );
-    }, [dispatch]);
+    }, [dispatch, bufferedAppendLine]);
 
     const buildTreeData = (filesList: FileEntry[]) => {
         const root: TreeNode[] = [];
@@ -538,7 +538,7 @@ export default function EditorView() {
                 },
             );
 
-const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult : {}) as PlanResult;
+            const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult : {}) as PlanResult;
 
             if (!tasks || tasks.length === 0) throw new Error('No tasks generated');
 
@@ -552,7 +552,6 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
             const planMessageIndex = chatMessages.length + 2;
 
             let allGeneratedFiles: FileResult[] = [];
-            let completedTaskCount = 0;
 
 
             // ── Phase 3: Executing tasks (PARALLEL PIPELINE) ──
@@ -616,7 +615,6 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
                 }
 
                 // Show per-task completion in chat
-                completedTaskCount++;
                 const fileNames = taskFiles.map(f => f.path);
                 const stepMsg = `<step task="${currentTask.task}">${fileNames.join('\n')}</step>`;
                 dispatch(addMessage({ role: 'assistant', content: `✦ I have implemented: **${currentTask.task}**\n${stepMsg}` }));
@@ -665,7 +663,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
             dispatch(appendLine({ content: `✗ ${err}`, type: 'error' }));
             throw err;
         }
-    }, [dispatch, chatMessages.length, files, fetchGenerateSSE, bufferedAppendLine, activeFile, framework, runDevServer]);
+    }, [dispatch, chatMessages.length, fetchGenerateSSE, bufferedAppendLine, activeFile, framework, runDevServer]);
 
     const isBooting = useRef(false);
 
@@ -747,7 +745,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
             cancelled = true;
             pythonRunner.stop();
         };
-    }, [dispatch, processGeneration, searchParams, bufferedAppendLine]);
+    }, [dispatch, processGeneration, searchParams, bufferedAppendLine, files, runDevServer]);
 
     // ── Debounced auto-save: write editor changes to WebContainer after 1s ──
     const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -832,7 +830,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
                 dispatch(appendLine({ content: `✗ Failed to restart server: ${err}`, type: 'error' }));
             }
         }
-    }, [status, dispatch, chatMessages, files, processGeneration, runDevServer]);
+    }, [status, dispatch, chatMessages, files, processGeneration]);
 
     const handleClearContainer = useCallback(async () => {
         dispatch(setStatus('booting'));
@@ -896,7 +894,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
         } catch (err) {
             dispatch(appendLine({ content: `✗ Failed to save ${filePath}: ${err}`, type: 'error' }));
         }
-    }, [dispatch, bufferedAppendLine]);
+    }, [dispatch, bufferedAppendLine, runDevServer]);
 
     // ── Create File Handler ──
     const handleCreateFile = useCallback(async (filePath: string) => {
@@ -963,7 +961,7 @@ const { tasks, theme } = (planResult && !Array.isArray(planResult) ? planResult 
             dispatch(setRunStatus('error'));
             dispatch(appendLine({ content: `✗ Install error: ${err}`, type: 'error' }));
         }
-    }, [dispatch]);
+    }, [dispatch, bufferedAppendLine, runDevServer]);
 
     return (
         <div className="relative h-screen flex flex-col bg-[#050505] font-sans overflow-hidden text-zinc-100 selection:bg-indigo-500/30">

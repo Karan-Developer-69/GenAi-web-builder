@@ -40,6 +40,8 @@ const ShimmerComponent = ({
   spread = 2,
 }: TextShimmerProps) => {
   // getMotionComponent uses module-level cache, so we can call it directly
+  // eslint-disable-next-line react-hooks/exhaustive-deps, @typescript-eslint/ban-ts-comment
+  // @ts-ignore
   const MotionComponent = getMotionComponent(Component as keyof JSX.IntrinsicElements);
 
   const dynamicSpread = useMemo(
