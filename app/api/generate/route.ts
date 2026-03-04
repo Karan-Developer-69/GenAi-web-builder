@@ -1,5 +1,6 @@
 import { groqCall } from '@/utils/ai';
 import { NextRequest } from 'next/server';
+import { validateGeneratedFiles } from '@/utils/code-validator';
 
 // IMPORTANT: Do NOT use edge runtime — it cannot connect to localhost:8000
 // export const runtime = 'edge';
@@ -32,14 +33,37 @@ import type { Theme, Task } from '@/utils/validators';
 
 const buildSystemPromptPlan = (framework = 'react') => {
   const fw = FRAMEWORK_CONFIGS[framework] ?? FRAMEWORK_CONFIGS.react;
-  return `Act as Lysis AI v7.0. Create a design system & plan for: ${fw.label}.
-Rules:
-- 1st Task: "Initial Project Setup" (${fw.setupFiles}).
-- Max 4-5 focused tasks.
-Format (XML tags):
-<thinking>...</thinking>
-<theme><name>..</name><primary>..</primary><background>..</background><text>..</text><font>..</font></theme>
-<tasks><task id="1" description="..">Initial Project Setup</task>...</tasks>`;
+  return `You are Lysis AI v7.1, a project planner for ${fw.label} websites.
+
+YOUR ONLY JOB RIGHT NOW IS TO OUTPUT A STRUCTURED XML PLAN. DO NOT WRITE ANY CODE. DO NOT WRITE PROSE.
+
+CRITICAL: You MUST respond using ONLY these XML tags — nothing else:
+
+<thinking>
+Brief reasoning about the project structure (2-3 sentences max).
+</thinking>
+<theme>
+<name>Theme Name</name>
+<primary>#hexcolor</primary>
+<background>#hexcolor</background>
+<text>#hexcolor</text>
+<font>Font Name, fallback</font>
+</theme>
+<tasks>
+<task id="1" description="Create all base project files">Initial Project Setup</task>
+<task id="2" description="Build the main UI components">Core Components</task>
+<task id="3" description="Add pages and routing">Pages & Navigation</task>
+</tasks>
+
+RULES:
+- Task 1 MUST be called "Initial Project Setup" and cover: ${fw.setupFiles}
+- Use 4-5 tasks maximum
+- Each task title is SHORT (3-5 words)
+- Each description is ONE sentence
+- Colors must use a modern dark/vibrant palette that fits the user's request
+- DO NOT write any code, markdown, or explanation outside of the XML tags above
+- DO NOT use backticks, bullet points, or numbered lists
+- Your ENTIRE response must start with <thinking> and end with </tasks>`;
 };
 
 
@@ -53,23 +77,33 @@ const buildExecutePrompt = (
   const fw = FRAMEWORK_CONFIGS[framework] ?? FRAMEWORK_CONFIGS.react;
   const isSetupTask = currentTask.task === "Initial Project Setup";
 
-  return `Act as Lysis AI v7.0. Execute Task: ${currentTask.task}.
+  return `You are Lysis AI v7.1. Execute Task: ${currentTask.task}.
 Plan: ${JSON.stringify(plan)}
 Theme: ${JSON.stringify(theme)}
 Context: ${existingFilePaths.join(', ')}
 
+YOUR ONLY JOB RIGHT NOW IS TO OUTPUT STRUCTURED XML FILES. DO NOT WRITE ANY PROSE. DO NOT USE MARKDOWN CODE BLOCKS.
+
+CRITICAL FORMAT REQUIREMENT:
+You MUST respond using ONLY these exact XML tags — nothing else:
+
+<thinking>
+Brief reasoning about the implementation (1-2 sentences).
+</thinking>
+<files>
+<file path="path/to/filename.ext">
+// raw file content goes directly here, no markdown backticks
+</file>
+</files>
+
 Rules:
 - ${isSetupTask ? `MANDATORY: Create ${fw.setupFiles}.` : 'Max 4-5 core files.'}
-- ${framework === 'python' ? 'Python files ONLY. No Node stuff.' : 'Tailwind CSS ONLY. No raw CSS.'}
+- ${framework === 'python' ? 'PYTHON RULES: MUST use FastAPI and uvicorn. DO NOT use Flask or Django. Create a fully working API with Jinja2 templates. ALWAYS use this exact Tailwind script in HTML: <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>' : 'Tailwind CSS ONLY. No raw CSS.'}
 - NEVER import non-existent files.
-- UI/UX QUALITY: Create visually stunning, highly polished interfaces. Use smooth buttery micro-animations (e.g., hover:scale-105, transition-all duration-300).
-- ARCHITECTURE: Keep code strictly centralized and modular. Do NOT dump huge blobs of code. Break into reusable components.
-- UX: Include functional navigation and structured routing out of the box so the app feels like a complete product.
-- IMAGES: For any custom images (hero, products, etc.), use "https://ai-image.local/prompt?q=DETAILED_DESCRIPTION". 
-  Example: <img src="https://ai-image.local/prompt?q=ultra+realistic+modern+office+laptop+coffee" />
-Format:
-<thinking>...</thinking>
-<files><file path="path">content</file></files>`;
+- UI/UX QUALITY: Create visually stunning, highly polished interfaces. Use smooth buttery micro-animations.
+- IMAGES: For placeholders, use <img src="https://ai-image.local/prompt?q=DETAILED_DESCRIPTION" />
+- DO NOT wrap file contents in \`\`\` language backticks. Write raw code directly inside the <file> tag.
+- Your ENTIRE response must start with <thinking> and end with </files>`;
 };
 const buildFixPrompt = (
   currentFiles: unknown[],
@@ -86,20 +120,30 @@ const buildFixPrompt = (
     })
     .filter(Boolean);
 
-  return `Act as Lysis AI v7.0. Targeted Error Fix Mode.
+  return `You are Lysis AI v7.1. Targeted Error Fix Mode.
 Context: The user has reported an error or requested a specific fix. 
 Current Files: ${JSON.stringify(filePaths)}
 
-Rules:
-1. ONLY modify the files necessary to fix the reported issue.
-2. DO NOT regenerate the entire project.
-3. Keep changes minimal and focused.
-4. If a new file is absolutely required, you may create it, but prefer modifying existing ones.
-5. maintain the same theme and framework: ${framework}.
+YOUR ONLY JOB RIGHT NOW IS TO OUTPUT STRUCTURED XML FILES. DO NOT WRITE ANY PROSE. DO NOT USE MARKDOWN CODE BLOCKS.
 
-Format:
-<thinking>...</thinking>
-<files><file path="path">content</file></files>`;
+CRITICAL FORMAT REQUIREMENT:
+You MUST respond using ONLY these exact XML tags — nothing else:
+
+<thinking>
+Brief reasoning about the fix (1-2 sentences).
+</thinking>
+<files>
+<file path="path/to/filename.ext">
+// complete raw file content goes directly here, no markdown backticks
+</file>
+</files>
+
+Rules:
+1. ONLY return the complete contents of the files being modified to fix the issue.
+2. DO NOT use diffs or placeholder comments. Return the full, working file content.
+3. DO NOT wrap file contents in \`\`\` language backticks. Write raw code directly inside the <file> tag.
+4. Maintain the same theme. ${framework === 'python' ? 'PYTHON RULES: MUST use FastAPI and uvicorn. DO NOT use Flask or Django. ALWAYS use this exact Tailwind script in HTML: <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>' : 'Tailwind CSS ONLY. No raw CSS.'}
+5. Your ENTIRE response must start with <thinking> and end with </files>`;
 };
 
 /* ───────────────── MAIN HANDLER ───────────────── */
@@ -118,15 +162,15 @@ export async function POST(req: NextRequest) {
     // Collect existing file paths for context
     const existingFilePaths: string[] = Array.isArray(existingFiles)
       ? existingFiles.map((f: unknown) => {
-          if (typeof f === 'string') return f;
-          if (typeof f === 'object' && f) {
-            const obj = f as { path?: unknown };
-            if (typeof obj.path === 'string') {
-              return obj.path;
-            }
+        if (typeof f === 'string') return f;
+        if (typeof f === 'object' && f) {
+          const obj = f as { path?: unknown };
+          if (typeof obj.path === 'string') {
+            return obj.path;
           }
-          return '';
-        }).filter(Boolean)
+        }
+        return '';
+      }).filter(Boolean)
       : [];
 
     // Choose system prompt
@@ -166,7 +210,131 @@ export async function POST(req: NextRequest) {
           // For 'execute' mode: files array
           const result = rawContent;
 
-          send('done', { result });
+          // ── Dependency Safety Net ─────────────────────────────────────────
+          // Enforces correct, real package versions for all known packages.
+          // The AI frequently invents non-existent versions (e.g. lucide-react@^1.0.3).
+          // This map is the ground truth — it OVERWRITES any hallucinated version.
+          const KNOWN_GOOD_VERSIONS: Record<string, { section: 'dependencies' | 'devDependencies'; version: string }> = {
+            // Vite ecosystem
+            'vite': { section: 'devDependencies', version: '^5.4.0' },
+            '@vitejs/plugin-react': { section: 'devDependencies', version: '^4.3.1' },
+            '@vitejs/plugin-react-swc': { section: 'devDependencies', version: '^3.7.0' },
+            // React
+            'react': { section: 'dependencies', version: '^18.3.1' },
+            'react-dom': { section: 'dependencies', version: '^18.3.1' },
+            '@types/react': { section: 'devDependencies', version: '^18.3.3' },
+            '@types/react-dom': { section: 'devDependencies', version: '^18.3.0' },
+            // TypeScript
+            'typescript': { section: 'devDependencies', version: '^5.5.3' },
+            // Tailwind
+            'tailwindcss': { section: 'devDependencies', version: '^3.4.1' },
+            'autoprefixer': { section: 'devDependencies', version: '^10.4.19' },
+            'postcss': { section: 'devDependencies', version: '^8.4.38' },
+            // UI
+            'lucide-react': { section: 'dependencies', version: '^0.395.0' },
+            'framer-motion': { section: 'dependencies', version: '^11.3.8' },
+            'react-icons': { section: 'dependencies', version: '^5.2.1' },
+            'clsx': { section: 'dependencies', version: '^2.1.1' },
+            'class-variance-authority': { section: 'dependencies', version: '^0.7.0' },
+            'tailwind-merge': { section: 'dependencies', version: '^2.4.0' },
+            // Routing
+            'react-router-dom': { section: 'dependencies', version: '^6.26.0' },
+            // Radix UI (commonly hallucinated with bad versions)
+            '@radix-ui/react-dialog': { section: 'dependencies', version: '^1.1.1' },
+            '@radix-ui/react-dropdown-menu': { section: 'dependencies', version: '^2.1.1' },
+            '@radix-ui/react-slot': { section: 'dependencies', version: '^1.1.0' },
+            // Animation
+            'gsap': { section: 'dependencies', version: '^3.12.5' },
+          };
+
+          if ((groqMode === 'execute' || groqMode === 'fix') && Array.isArray(result)) {
+            const files = result as { path: string; content: string }[];
+            const pkgFile = files.find(f => f.path === 'package.json' || f.path.endsWith('/package.json'));
+            if (pkgFile) {
+              try {
+                const pkg = JSON.parse(pkgFile.content) as {
+                  dependencies?: Record<string, string>;
+                  devDependencies?: Record<string, string>;
+                };
+                pkg.dependencies ??= {};
+                pkg.devDependencies ??= {};
+
+                const allContent = files.map(f => f.content).join('\n');
+                const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+                // Step 1: Fix any already-declared packages with known-bad versions
+                for (const [pkg_name, { section, version }] of Object.entries(KNOWN_GOOD_VERSIONS)) {
+                  if (pkg_name in allDeps) {
+                    // Package exists but may have a hallucinated version — overwrite with known-good
+                    if (section === 'dependencies') {
+                      pkg.dependencies[pkg_name] = version;
+                    } else {
+                      pkg.devDependencies[pkg_name] = version;
+                    }
+                  }
+                }
+
+                // Step 2: Inject missing packages that are actually used in the code
+                const inject = (name: string) => {
+                  const known = KNOWN_GOOD_VERSIONS[name];
+                  if (!known) return;
+                  const { section, version } = known;
+                  if (!(name in pkg.dependencies!) && !(name in pkg.devDependencies!)) {
+                    if (section === 'dependencies') pkg.dependencies![name] = version;
+                    else pkg.devDependencies![name] = version;
+                  }
+                };
+
+                // Vite
+                if (allContent.includes('@vitejs/plugin-react') || files.some(f => f.path.includes('vite.config'))) {
+                  inject('@vitejs/plugin-react'); inject('vite');
+                }
+                // Tailwind
+                if (allContent.includes('tailwindcss') || files.some(f => f.path.includes('tailwind.config'))) {
+                  inject('tailwindcss'); inject('autoprefixer'); inject('postcss');
+                }
+                // TypeScript
+                if (files.some(f => /\.(tsx?|ts)$/.test(f.path) && !f.path.endsWith('.config.ts'))) {
+                  inject('typescript'); inject('@types/react'); inject('@types/react-dom');
+                }
+                // React
+                if (allContent.includes("from 'react'") || allContent.includes('from "react"')) {
+                  inject('react'); inject('react-dom');
+                }
+                // Conditional library injection
+                if (allContent.includes('framer-motion')) inject('framer-motion');
+                if (allContent.includes('lucide-react')) inject('lucide-react');
+                if (allContent.includes('react-router') || allContent.includes('react-router-dom')) inject('react-router-dom');
+                if (allContent.includes('react-icons')) inject('react-icons');
+                if (allContent.includes('clsx')) inject('clsx');
+                if (allContent.includes('tailwind-merge')) inject('tailwind-merge');
+                if (allContent.includes('gsap')) inject('gsap');
+
+                pkgFile.content = JSON.stringify(pkg, null, 2);
+                console.log('[Generate] Dependency safety net applied to package.json.');
+              } catch {
+                console.warn('[Generate] Could not patch package.json dependencies.');
+              }
+            }
+          }
+          // ── End Dependency Safety Net ─────────────────────────────────────
+
+          // Run quality validator on generated files (execute/fix modes)
+          let warnings: Record<string, string[]> = {};
+          if ((groqMode === 'execute' || groqMode === 'fix') && Array.isArray(result)) {
+            const filesWithContent = result
+              .filter((f: unknown): f is { path: string; content: string } =>
+                typeof f === 'object' && f !== null &&
+                typeof (f as { path?: unknown }).path === 'string' &&
+                typeof (f as { content?: unknown }).content === 'string'
+              );
+            warnings = validateGeneratedFiles(filesWithContent);
+            if (Object.keys(warnings).length > 0) {
+              console.warn('[Generate] Code quality warnings:', JSON.stringify(warnings, null, 2));
+            }
+          }
+
+          send('done', { result, warnings });
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Unknown error';
           send('error', { error: 'Generation failed', detail: message });

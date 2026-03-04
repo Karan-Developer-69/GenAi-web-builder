@@ -150,6 +150,15 @@ function MessageContent({ content, isStreaming }: { content: string; isStreaming
 
   parts.push(<div key="main-content" className="flex flex-col gap-1">{contentParts}</div>);
 
+  // Blinking ▌ cursor appended while streaming
+  if (isStreaming) {
+    parts.push(
+      <span key="stream-cursor" className="inline-block animate-pulse text-blue-400 font-mono leading-none" aria-hidden="true">
+        ▌
+      </span>
+    );
+  }
+
   return <div className="flex flex-col w-full">{parts}</div>;
 }
 
@@ -273,7 +282,7 @@ export default function ChatPage() {
     d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 
-return <div className="flex h-screen overflow-hidden bg-bg-base font-sans">
+  return <div className="flex h-screen overflow-hidden bg-bg-base font-sans">
     {/* ── SIDEBAR ── */}
     <aside className={cn(
       "flex flex-col w-[260px] min-w-[260px] bg-bg-surface border-r border-line transition-all duration-300 overflow-hidden",
@@ -328,9 +337,9 @@ return <div className="flex h-screen overflow-hidden bg-bg-base font-sans">
         )}
         <div className="flex items-center gap-3 flex-1">
           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-primary/10 border border-blue-primary/20 text-blue-primary font-mono tracking-wider">
-            LLAMA-3.3-70B
+            MULTI-AI
           </span>
-          <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest opacity-60">Powered by Groq</span>
+          <span className="text-[10px] font-bold text-text-3 uppercase tracking-widest opacity-60">Groq · Cerebras · Gemini · Mistral</span>
         </div>
         <Link href="/editor" className="text-[11px] font-bold text-text-2 no-underline px-3.5 py-1.5 border border-line rounded-lg bg-line/30 transition-all hover:text-text hover:border-text-3 hover:bg-line/50 hover:shadow-sm">
           🖥️ Editor

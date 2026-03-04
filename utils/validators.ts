@@ -11,7 +11,7 @@ export function parseTag(content: string, tagName: string): string | null {
   if (startIdx === -1) return null;
 
   const contentStart = startIdx + openTag.length;
-  let endIdx = content.indexOf(closeTag, contentStart);
+  const endIdx = content.indexOf(closeTag, contentStart);
 
   // If no closing tag, take everything to the end
   if (endIdx === -1) {
@@ -43,13 +43,44 @@ export function parseFilesFromTags(content: string): { path: string; content: st
     // Remove trailing whitespace and potentially unclosed tags
     fileContent = fileContent.replace(/<\/file>$/, '').trim();
 
-    result.push({ path, content: fileContent });
+    // Strip wrapping markdown backticks if the model ignored instructions
+    if (fileContent.startsWith('```')) {
+      // Remove opening backticks and optional language specifier
+      fileContent = fileContent.replace(/^```[a-zA-Z]*\n?/, '');
+      // Remove closing backticks
+      fileContent = fileContent.replace(/\n?```\s*$/, '');
+    }
+
+    result.push({ path, content: fileContent.trim() });
   }
 
   return result;
 }
 
 /**
+ * Fallback: Extracts files mapped from markdown code blocks if the model ignored tags completely.
+ * Looks for patterns like `**src/App.tsx**\n\`\`\`tsx\ncontent\n\`\`\``
+ */
+export function parseFilesFromMarkdown(content: string): { path: string; content: string }[] {
+  const result: { path: string; content: string }[] = [];
+
+  // Match a filename (e.g. bolded, or just text ending in a common extension) right before a code block
+  // e.g. **components/Header.tsx**\n```tsx\n...\n```
+  const blockRegex = /(?:[*#`]+)?\s*([a-zA-Z0-9_\-\.\/]+\.[a-zA-Z0-9]+)\s*(?:[*#`]+)?\s*```[a-zA-Z]*\n([\s\S]*?)\n```/g;
+  let match;
+
+  while ((match = blockRegex.exec(content)) !== null) {
+    result.push({ path: match[1].trim(), content: match[2].trim() });
+  }
+
+  // If no files with clear names were found, but there's exactly one big code block,
+  // we could extract it, but it's risky without a filename. In execute mode, we 
+  // rely on this just to salvage heavily degraded model outputs.
+  return result;
+}
+
+/**
+
  * Extracts theme and tasks from content formatted with tags.
  */
 

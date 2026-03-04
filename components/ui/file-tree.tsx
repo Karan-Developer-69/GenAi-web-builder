@@ -216,7 +216,9 @@ const Folder = forwardRef<
       isSelect,
       children,
       ...props
-    }
+    },
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _ref  // ref is accepted but not forwarded (Folder renders AccordionPrimitive.Item, not a div)
   ) => {
     const {
       direction,

@@ -1,4 +1,4 @@
-import { WebContainer, type FileSystemTree } from '@webcontainer/api';
+import { WebContainer } from '@webcontainer/api';
 
 let webcontainerInstance: WebContainer | null = null;
 let bootPromise: Promise<WebContainer> | null = null;
@@ -86,8 +86,7 @@ export async function startDevServer(
         return 'DELEGATE_TO_PYTHON_RUNNER';
     }
 
-    let command = 'npm';
-    let args = ['run', 'dev'];
+    const command = 'npm';
 
     let pkg: Record<string, unknown> = {};
     try {
@@ -99,16 +98,16 @@ export async function startDevServer(
 
     const scriptsObj = pkg.scripts;
     const scripts = typeof scriptsObj === 'object' && scriptsObj !== null ? scriptsObj as Record<string, unknown> : {};
-    if (typeof scripts.dev === 'string') {
-        args = ['run', 'dev'];
-    } else if (typeof scripts.start === 'string') {
-        args = ['start']; // equivalent to run start, but standard npm
-    } else if (typeof scripts.preview === 'string') {
-        args = ['run', 'preview'];
-    } else {
-        onTerminalLog?.(`\n⚠ Warning: No familiar dev script (dev, start, preview) found in package.json. Defaulting to npm start.\n`);
-        args = ['start'];
-    }
+
+    // Determine which npm script to run — computed once into a const to satisfy prefer-const
+    const args: string[] =
+        typeof scripts.dev === 'string' ? ['run', 'dev']
+            : typeof scripts.start === 'string' ? ['start']
+                : typeof scripts.preview === 'string' ? ['run', 'preview']
+                    : (() => {
+                        onTerminalLog?.(`\n⚠ Warning: No familiar dev script (dev, start, preview) found in package.json. Defaulting to npm start.\n`);
+                        return ['start'];
+                    })();
 
     onTerminalLog?.(`$ ${command} ${args.join(' ')}\n`);
     console.log('[WC] Spawning:', command, args.join(' '));
@@ -167,23 +166,23 @@ export async function runInstall(onTerminalLog?: (data: string) => void) {
         return 0; // Signal success but do nothing in WC
     }
 
-    let command = 'npm';
-    let args = ['install'];
+    const command = 'npm';
+    const args = ['install'];
 
     onTerminalLog?.(`✦ Synergy Orchestrating ${framework} Dependencies...\n`);
 
     const installProcess = await wc.spawn(command, args);
 
-    installProcess.output.pipeTo(
-        new WritableStream({
-            write(data) {
-                const cleaned = cleanTerminalLog(data);
-                if (cleaned) {
-                    onTerminalLog?.(cleaned);
-                }
-            },
-        })
-    );
+    // installProcess.output.pipeTo(
+    //     new WritableStream({
+    //         write(data) {
+    //             const cleaned = cleanTerminalLog(data);
+    //             if (cleaned) {
+    //                 onTerminalLog?.(cleaned);
+    //             }
+    //         },
+    //     })
+    // );
 
     const exitCode = await installProcess.exit;
     console.log(`[WC] ${command} install exit code:`, exitCode);

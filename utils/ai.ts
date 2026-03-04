@@ -1,4 +1,4 @@
-import { repairTruncatedJSON, validateFiles, normalizeFiles, parsePlanFromTags, parseFilesFromTags } from "./validators";
+import { repairTruncatedJSON, validateFiles, normalizeFiles, parsePlanFromTags, parseFilesFromTags, parseFilesFromMarkdown } from "./validators";
 import { multiAI } from "./multi-ai";
 
 /**
@@ -69,7 +69,7 @@ export const groqCall = async (
     mode: 'plan' | 'execute' | 'fix' = 'plan',
     retries = 1,
     provider?: string,
-): Promise<any> => {
+): Promise<{ tasks: import('./validators').Task[]; theme: import('./validators').Theme } | { path: string; content: string }[]> => {
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
             const res = await multiAI.chat([
@@ -81,16 +81,58 @@ export const groqCall = async (
             const rawContent = data.choices[0]?.message?.content || '';
 
             if (mode === 'plan') {
-                // Try tag-based parsing first
+                // Stage 1: Tag-based parsing (primary path — format enforced by system prompt)
                 const plan = parsePlanFromTags(rawContent);
                 if (plan.tasks.length > 0) return plan;
 
-                // Fallback to JSON repair
-                const repaired = repairTruncatedJSON(rawContent);
-                const parsed = JSON.parse(repaired);
+                // Stage 2: JSON repair fallback (for providers that ignore tag instructions)
+                try {
+                    const repaired = repairTruncatedJSON(rawContent);
+                    const parsed = JSON.parse(repaired);
+                    if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+                        return {
+                            tasks: parsed.tasks,
+                            theme: parsed.theme || plan.theme,
+                        };
+                    }
+                } catch {
+                    // JSON repair failed — continue to next fallback
+                }
+
+                // Stage 3: Plain-text numbered list extraction
+                // e.g. "1. Initial Project Setup\n2. Build UI Components\n..."
+                const numberedLines = rawContent
+                    .split('\n')
+                    .map((l: string) => l.trim())
+                    .filter((l: string) => /^\d+[\.\)]\s+\S/.test(l));
+
+                if (numberedLines.length > 0) {
+                    return {
+                        theme: plan.theme,
+                        tasks: numberedLines.map((line: string, idx: number) => ({
+                            id: idx + 1,
+                            task: line.replace(/^\d+[\.\)]\s+/, '').trim(),
+                            description: '',
+                        })),
+                    };
+                }
+
+                // Stage 4: Synthetic fallback — model returned prose/code instead of a plan.
+                // We generate a sensible default plan from the raw content rather than failing entirely.
+                // This guarantees the user always sees progress even when the AI misbehaves.
+                console.warn('[groqCall] Plan parsing exhausted all strategies — synthesizing default plan. Raw snippet:', rawContent.slice(0, 200));
                 return {
-                    tasks: parsed.tasks || [],
-                    theme: parsed.theme || ''
+                    theme: {
+                        name: 'Custom Theme',
+                        colors: { primary: '#6366f1', background: '#0f0f14', text: '#f4f4f5' },
+                        font: 'Inter, sans-serif',
+                    },
+                    tasks: [
+                        { id: 1, task: 'Initial Project Setup', description: 'Create all base project files and configuration.' },
+                        { id: 2, task: 'Core UI Components', description: 'Build the main reusable UI components.' },
+                        { id: 3, task: 'Pages & Layout', description: 'Assemble pages with navigation and responsive layout.' },
+                        { id: 4, task: 'Interactivity & Polish', description: 'Add animations, interactions, and final styling.' },
+                    ],
                 };
             }
 
@@ -101,14 +143,44 @@ export const groqCall = async (
                 return files;
             }
 
-            // Fallback to JSON extraction
-            const repaired = repairTruncatedJSON(rawContent);
-            const parsed = JSON.parse(repaired);
-            const rawFiles = parsed.files || (Array.isArray(parsed) ? parsed : []);
-            const normalized = normalizeFiles(rawFiles);
-            validateFiles(normalized);
+            // Fallback 2: JSON extraction
+            try {
+                const repaired = repairTruncatedJSON(rawContent);
+                const parsed = JSON.parse(repaired);
+                const rawFiles = parsed.files || (Array.isArray(parsed) ? parsed : []);
+                if (rawFiles && rawFiles.length > 0) {
+                    const normalized = normalizeFiles(rawFiles);
+                    if (normalized.length > 0) {
+                        validateFiles(normalized);
+                        return normalized;
+                    }
+                }
+            } catch {
+                // Ignore JSON parse errors and continue to markdown fallback
+            }
 
-            return normalized;
+            // Fallback 3: Markdown Code Blocks extraction
+            // Looks for bolded filenames followed by code blocks
+            const mdFiles = parseFilesFromMarkdown(rawContent);
+            if (mdFiles.length > 0) {
+                validateFiles(mdFiles);
+                return mdFiles;
+            }
+
+            // Fallback 4: Desperation single-block extraction
+            // If the model wrote EXACTLY ONE code block but no filename, we salvage it as App.tsx
+            const singleBlockRegex = /```(?:[a-zA-Z]*)\n([\s\S]*?)\n```/;
+            const singleMatch = singleBlockRegex.exec(rawContent);
+            if (singleMatch) {
+                console.warn('[groqCall] Extremely degraded output. Salvaging a single code block.');
+                const ext = rawContent.includes('export default') || rawContent.includes('import React') ? 'tsx' : 'ts';
+                const filename = `src/GeneratedComponent.${ext}`;
+                const syntheticFiles = [{ path: filename, content: singleMatch[1].trim() }];
+                validateFiles(syntheticFiles);
+                return syntheticFiles;
+            }
+
+            throw new Error(`[groqCall] execute mode failed to parse any files. Raw preview: ${rawContent.slice(0, 150)}`);
         } catch (err) {
             if (attempt < retries) {
                 console.warn(`[groqCall] Attempt ${attempt + 1} failed, retrying...`, err);
@@ -117,4 +189,6 @@ export const groqCall = async (
             throw err;
         }
     }
+    // Unreachable — loop always throws on final attempt, but TS requires explicit terminal statement.
+    throw new Error("[groqCall] Exhausted all retries.");
 };

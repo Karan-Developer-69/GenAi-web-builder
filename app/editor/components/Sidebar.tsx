@@ -3,7 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { FiSend } from 'react-icons/fi';
-import { CheckCircle, Rocket, FolderOpen, Brain, Loader2 } from 'lucide-react';
+import { CheckCircle, Rocket, FolderOpen, Brain } from 'lucide-react';
 
 import { ChatPhase } from '@/lib/store/slices/chatSlice';
 import { Shimmer } from '@/components/ai-elements/shimmer';
@@ -240,7 +240,6 @@ function PhaseIndicator({ phase }: { phase: ChatPhase }) {
 
     return (
         <div className="flex items-center gap-2 text-zinc-400 text-[10px] ml-1 animate-in fade-in duration-500">
-            <Loader2 className="size-3 animate-spin text-indigo-400" />
             <Shimmer className="font-medium">{label}</Shimmer>
         </div>
     );
@@ -291,7 +290,7 @@ export default function Sidebar({
                                 <div className="px-3 py-2 rounded-sm text-[12.5px] leading-relaxed bg-zinc-800 text-white">
                                     {msg.content}
                                 </div>
-                                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter px-1">OPERATOR</span>
+                                <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter px-1">USER</span>
                             </div>
                         );
                     }
@@ -303,7 +302,7 @@ export default function Sidebar({
                             <div className="w-full px-3 py-2.5 rounded-md bg-zinc-900/50 text-zinc-200 rounded-tl-none border border-zinc-800/80 shadow-black/20">
                                 <AssistantMessage content={msg.content} isLatest={isLatest} />
                             </div>
-                            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter px-1">LYSIS CORE</span>
+                            <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter px-1">LYSIS</span>
                         </div>
                     );
                 })}
@@ -322,7 +321,7 @@ export default function Sidebar({
                                 </div>
                             </div>
                         </div>
-                        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter px-1">LYSIS CORE</span>
+                        <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter px-1">LYSIS</span>
                     </div>
                 )}
 

@@ -12,7 +12,7 @@ export class PythonRunnerClient {
     private socket: WebSocket | null = null;
     private baseUrl: string;
 
-    constructor(baseUrl: string = 'ws://localhost:8001/ws/run') {
+    constructor(baseUrl: string = 'wss://karan6933-python-enviroment.hf.space/ws/run') {
         this.baseUrl = baseUrl;
     }
 
