@@ -21,7 +21,7 @@ const PROVIDERS = [
         name: 'Groq',
         baseUrl: 'https://api.groq.com/openai/v1',
         getApiKey: () => process.env.GROQ_API_KEY,
-        model: 'llama-3.3-70b-versatile', // Fast, reliable, 128K ctx
+        model: 'qwen/qwen3-32b', 
     },
     {
         id: 'cerebras',
@@ -29,13 +29,6 @@ const PROVIDERS = [
         baseUrl: 'https://api.cerebras.ai/v1',
         getApiKey: () => process.env.CEREBRAS_API_KEY,
         model: 'zai-glm-4.6', // ~1000 tok/s, #1 BFCL tool-calling, comparable to Sonnet 4.5
-    },
-    {
-        id: 'gemini',
-        name: 'Gemini',
-        baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-        getApiKey: () => process.env.GEMINI_API_KEY,
-        model: 'gemini-2.5-flash', // Stable GA, 1M ctx, fast & excellent at code
     },
     {
         id: 'mistral',

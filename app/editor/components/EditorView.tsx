@@ -52,6 +52,7 @@ import {
     getFramework,
     stopDevServer,
 } from '../../../webcontainer/container';
+import { generateProgressBar, extractPipProgress } from '../../../utils/terminal-utils';
 import { pythonRunner } from '../../../utils/python-runner';
 import { File, Folder } from '../../../components/ui/file-tree';
 import { getLanguage } from '../../../lib/utils';
@@ -440,10 +441,28 @@ export default function EditorView() {
                         /^  Getting requirements /i,
                     ];
 
+                    let currentProgress = 0;
+                    const progressInterval = setInterval(() => {
+                        if (currentProgress < 90) {
+                            currentProgress += (90 - currentProgress) * 0.05;
+                            const bar = generateProgressBar(currentProgress);
+                            dispatch(updateLastLine({ content: `✦ Syncing Python Dependencies... ${bar}`, type: 'process' }));
+                        }
+                    }, 500);
+
                     await pythonRunner.run(
                         { files: projectFiles },
                         (msg) => {
                             if (msg.type === 'log' && msg.content) {
+                                // Extract pip progress if possible
+                                const parsedProgress = extractPipProgress(msg.content);
+                                if (parsedProgress !== null) {
+                                    currentProgress = Math.max(currentProgress, parsedProgress);
+                                    const bar = generateProgressBar(currentProgress);
+                                    dispatch(updateLastLine({ content: `✦ Syncing Python Dependencies... ${bar}`, type: 'process' }));
+                                    return;
+                                }
+
                                 // Skip noisy logs
                                 const isNoisy = NOISY_PATTERNS.some(p => p.test(msg.content!));
                                 if (isNoisy) return;
@@ -457,16 +476,20 @@ export default function EditorView() {
 
                                 if (portMatch && portMatch[1]) {
                                     const port = portMatch[1];
-                                    const url = `http://localhost:${port}`;
+                                    const devUrl = `http://localhost:${port}`; // internal dev url
+                                    // Set the preview url to HF if it's python
+                                    const url = 'https://karan6933-python-enviroment.hf.space';
                                     dispatch(setPreviewUrl(url));
                                     dispatch(setStatus('running'));
-                                    dispatch(appendLine({ content: `🚀 Preview detected at ${url}`, type: 'success' }));
+                                    dispatch(appendLine({ content: `🚀 Preview detected at ${devUrl} (Accessible via ${url})`, type: 'success' }));
                                 }
                             } else if (msg.type === 'error') {
                                 dispatch(appendLine({ content: msg.message || 'Unknown error', type: 'error' }));
                             }
                         }
                     );
+                    clearInterval(progressInterval);
+                    dispatch(updateLastLine({ content: `✓ Python Dependencies Ready ${generateProgressBar(100)}`, type: 'success' }));
                 })();
             } else {
                 // Node install logic (Background)
@@ -474,11 +497,24 @@ export default function EditorView() {
                 installAndServerPromise = (async () => {
                     dispatch(setRunStatus('installing'));
                     await stopDevServer(); // ✅ Stop old node dev server before install
+
+                    let progress = 0;
+                    const progressInterval = setInterval(() => {
+                        if (progress < 95) {
+                            progress += (95 - progress) * 0.1;
+                            const bar = generateProgressBar(progress);
+                            dispatch(updateLastLine({ content: `✦ Syncing Dependencies... ${bar}`, type: 'process' }));
+                        }
+                    }, 400);
+
                     const exitCode = await runInstall((data) => {
-                        bufferedAppendLine({ content: data, type: 'log' });
+                        // bufferedAppendLine({ content: data, type: 'log' });
                     });
+
+                    clearInterval(progressInterval);
+
                     if (exitCode === 0) {
-                        dispatch(updateLastLine({ content: '✓ Dependencies synchronized', type: 'success' }));
+                        dispatch(updateLastLine({ content: `✓ Dependencies Synchronized ${generateProgressBar(100)}`, type: 'success' }));
                         await runDevServer(false);
                     } else {
                         dispatch(setRunStatus('error'));
@@ -605,13 +641,7 @@ export default function EditorView() {
                     }
 
                     // Smart install: only if dependency files changed
-                    const hasDepsFile = taskFiles.some(f => f.path === 'package.json' || f.path === 'requirements.txt');
-                    if (hasDepsFile) {
-                        const needsReinstall = await shouldReinstall();
-                        if (needsReinstall) {
-                            startProjectIfPossible();
-                        }
-                    }
+                    // (DEFERRED: Move to Phase 4)
                 }
 
                 // Show per-task completion in chat
@@ -716,15 +746,25 @@ export default function EditorView() {
                             dispatch(updateLastLine({ content: `Processing ${spinnerChars[spinIdx++ % spinnerChars.length]}`, type: 'process' }));
                         }, 100);
 
-                        const exitCode = await runInstall((data: string) => {
-                            if (!cancelled && data.trim()) {
-                                bufferedAppendLine({ content: data, type: 'log' });
+                        let progress = 0;
+                        const progressInterval = setInterval(() => {
+                            if (progress < 95) {
+                                progress += (95 - progress) * 0.1;
+                                const bar = generateProgressBar(progress);
+                                dispatch(updateLastLine({ content: `✦ Syncing Dependencies... ${bar}`, type: 'process' }));
                             }
+                        }, 400);
+
+                        const exitCode = await runInstall((data: string) => {
+                            // if (!cancelled && data.trim()) {
+                            //     bufferedAppendLine({ content: data, type: 'log' });
+                            // }
                         });
 
+                        clearInterval(progressInterval);
                         clearInterval(spinInterval);
                         if (exitCode !== 0) throw new Error('Installation failed');
-                        dispatch(updateLastLine({ content: '✓ Dependencies synchronized', type: 'success' }));
+                        dispatch(updateLastLine({ content: `✓ Dependencies Synchronized ${generateProgressBar(100)}`, type: 'success' }));
 
                         await runDevServer(cancelled);
                     } else {

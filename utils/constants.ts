@@ -1,9 +1,8 @@
 export const AI_MODELS = [
-    { id: 'groq', name: 'Groq', models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'] },
-    { id: 'cerebras', name: 'Cerebras', models: ['llama-3.1-70b', 'llama-3.1-8b'] },
-    { id: 'gemini', name: 'Gemini', models: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'] },
+    { id: 'groq', name: 'Groq', models: ['qwen/qwen3-32b', 'openai/gpt-oss-120b'] },
+    { id: 'cerebras', name: 'Cerebras', models: ['gpt-oss-120b', 'zai-glm-4.6'] },
     { id: 'mistral', name: 'Mistral', models: ['codestral-latest', 'mistral-large-latest'] },
-    { id: 'openrouter', name: 'OpenRouter', models: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'google/gemini-2.0-flash-001'] },
+    { id: 'openrouter', name: 'OpenRouter', models: ['openai/gpt-4o', 'stepfun/step-3.5-flash:free', 'qwen/qwen3-coder:free'] },
     { id: 'github', name: 'GitHub', models: ['gpt-4o', 'phi-4'] },
 ];
 

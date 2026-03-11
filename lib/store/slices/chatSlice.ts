@@ -26,7 +26,7 @@ const initialState: ChatState = {
   phase: 'idle',
   thinkingText: '',
   selectedProvider: 'groq',
-  selectedModel: 'llama-3.3-70b-versatile',
+  selectedModel: 'qwen/qwen3-32b',
 };
 
 const chatSlice = createSlice({
